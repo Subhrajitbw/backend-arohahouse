@@ -5,14 +5,7 @@ loadEnv(process.env.NODE_ENV || 'development', process.cwd())
 module.exports = defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL,
-        databaseDriverOptions: {
-         ssl: { rejectUnauthorized: false },
-         connection: { ssl: { rejectUnauthorized: false } }
-    },
-
-    // Redis (set REDIS_URL in production; falls back to local)
-    redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
-
+    redisUrl: process.env.REDIS_URL,
     http: {
       storeCors: process.env.STORE_CORS,
       adminCors: process.env.ADMIN_CORS,
@@ -22,25 +15,25 @@ module.exports = defineConfig({
     }
   },
   modules: [
-        {
-      resolve: "@medusajs/medusa/file",
-      options: {
-        providers: [
-          {
-            resolve: "@medusajs/medusa/file-s3",
-            id: "s3",
-            options: {
-              file_url: process.env.FILE_BASE_URL,
-              access_key_id: process.env.S3_ACCESS_KEY_ID,
-              secret_access_key: process.env.S3_SECRET_ACCESS_KEY,
-              region: process.env.S3_REGION,
-              bucket: process.env.S3_BUCKET,
-              endpoint: process.env.S3_ENDPOINT,
-            },
-          },
-        ],
-      },
-    },
+    //     {
+    //   resolve: "@medusajs/medusa/file",
+    //   options: {
+    //     providers: [
+    //       {
+    //         resolve: "@medusajs/medusa/file-s3",
+    //         id: "s3",
+    //         options: {
+    //           file_url: process.env.FILE_BASE_URL,
+    //           access_key_id: process.env.S3_ACCESS_KEY_ID,
+    //           secret_access_key: process.env.S3_SECRET_ACCESS_KEY,
+    //           region: process.env.S3_REGION,
+    //           bucket: process.env.S3_BUCKET,
+    //           endpoint: process.env.S3_ENDPOINT,
+    //         },
+    //       },
+    //     ],
+    //   },
+    // },
     {
       resolve: "./src/modules/product-media",
     },
@@ -85,14 +78,14 @@ module.exports = defineConfig({
         productIndexName: process.env.ALGOLIA_PRODUCT_INDEX_NAME,
       },
     },
-    {
-      resolve: "./src/modules/meilisearch",
-      options: {
-        host: process.env.MEILISEARCH_HOST,
-        apiKey: process.env.MEILISEARCH_API_KEY,
-        productIndexName: process.env.MEILISEARCH_PRODUCT_INDEX_NAME,
-      },
-    },
+    // {
+    //   resolve: "./src/modules/meilisearch",
+    //   options: {
+    //     host: process.env.MEILISEARCH_HOST,
+    //     apiKey: process.env.MEILISEARCH_API_KEY,
+    //     productIndexName: process.env.MEILISEARCH_PRODUCT_INDEX_NAME,
+    //   },
+    // },
 
   ],
   plugins: [
