@@ -19,8 +19,16 @@ jobs:
           node-version: 20
           cache: yarn
 
+      # 👇 NEW: enable Corepack + activate Yarn 4.7.0 (matches packageManager)
+      - name: Enable Corepack and Yarn 4
+        run: |
+          corepack enable
+          corepack prepare yarn@4.7.0 --activate
+          yarn --version
+
+      # 👇 Use Yarn 4 style install (lockfile enforced)
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --immutable
 
       - name: Build Medusa backend + admin
         run: yarn build
@@ -60,7 +68,7 @@ jobs:
 
             # Install dependencies only if node_modules doesn't exist yet
             if [ ! -d "node_modules" ]; then
-              yarn install --production
+              yarn install --mode=skip-builds --production=false
             fi
 
             # Start or restart PM2 process

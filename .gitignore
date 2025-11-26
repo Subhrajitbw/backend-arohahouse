@@ -33,3 +33,5 @@ build
 .vscode
 .yarn
 node_modules
+medusa-config.server.js
+rename.js
