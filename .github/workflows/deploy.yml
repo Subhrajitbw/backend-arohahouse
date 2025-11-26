@@ -51,28 +51,50 @@ jobs:
       # 7. Create Deployment Bundle
       - name: Create deployment bundle
         run: |
-          tar czf deploy.tar.gz \
+          echo "Creating deployment tarball..."
+          tar czvf deploy.tar.gz \
             .medusa \
             package.json \
             yarn.lock \
             medusa-config.js
-            # .env is injected via secrets, so we don't need to bundle it.
+          echo "Bundle created: $(ls -lh deploy.tar.gz)"
 
-      # 👇 8. PRE-CLEANUP (Crucial Fix)
-      # Removes any lingering 'deploy.tar.gz' (file or directory) on the server
-      # before we try to copy the new one. Prevents "File exists" errors.
+      # 👇 8. PRE-CLEANUP (With Verbose Logs)
       - name: Pre-Cleanup EC2
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          debug: true # 🔍 Shows SSH handshake details
           script: |
-            # Create app dir if it doesn't exist
+            set -x # 🔍 Prints every command before running it
+            
+            echo "Connecting as user: $(whoami)"
+            echo "Target directory: ${{ secrets.EC2_APP_DIR }}"
+            
+            # Check if directory exists before creating
+            if [ -d "${{ secrets.EC2_APP_DIR }}" ]; then
+              echo "Directory exists. Checking contents..."
+              ls -la ${{ secrets.EC2_APP_DIR }}
+            else
+              echo "Directory does not exist. Creating..."
+            fi
+            
             mkdir -p ${{ secrets.EC2_APP_DIR }}
             cd ${{ secrets.EC2_APP_DIR }}
-            # Force delete deploy.tar.gz to ensure a clean state
-            rm -rf deploy.tar.gz
+            
+            echo "Current location: $(pwd)"
+            
+            # Force delete deploy.tar.gz
+            if [ -e "deploy.tar.gz" ]; then
+               echo "Found existing deploy.tar.gz. Deleting..."
+               rm -rf deploy.tar.gz
+            else
+               echo "No existing deploy.tar.gz found."
+            fi
+            
+            echo "Pre-cleanup complete."
 
       # 9. Copy Bundle to EC2
       - name: Copy bundle to EC2
@@ -81,52 +103,81 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          debug: true # 🔍 Shows SCP transfer details
           source: "deploy.tar.gz"
           target: "${{ secrets.EC2_APP_DIR }}"
 
-      # 10. Deploy & Start PM2
+      # 10. Deploy & Start PM2 (With Verbose Logs)
       - name: Deploy on EC2
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          debug: true # 🔍 Shows SSH handshake details
           script_stop: true
           script: |
+            set -x # 🔍 Prints every command
+            
+            echo "Starting Deployment Script..."
+            
             # Load NVM/Node
             export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            if [ -s "$NVM_DIR/nvm.sh" ]; then
+               \. "$NVM_DIR/nvm.sh"
+               echo "Node version: $(node -v)"
+               echo "NPM version: $(npm -v)"
+            else
+               echo "ERROR: NVM not found at $NVM_DIR"
+               exit 1
+            fi
             
-            # Ensure Corepack is active
+            # Ensure Corepack
             corepack enable
             corepack prepare yarn@4.7.0 --activate
+            echo "Yarn version: $(yarn --version)"
             
             cd ${{ secrets.EC2_APP_DIR }}
+            echo "Changed directory to: $(pwd)"
 
             # Inject Production Secrets
+            echo "Injecting .env.production..."
             echo "${{ secrets.PROD_ENV_FILE }}" > .env.production
+            
+            # Verify Tarball exists
+            if [ -f "deploy.tar.gz" ]; then
+               echo "deploy.tar.gz found. Size: $(du -h deploy.tar.gz)"
+            else
+               echo "CRITICAL ERROR: deploy.tar.gz missing!"
+               ls -la
+               exit 1
+            fi
 
             # Extract Bundle
+            echo "Extracting tarball..."
             tar xzf deploy.tar.gz
+            echo "Extraction complete."
 
-            # Install Production Dependencies
+            # Install Dependencies
+            echo "Installing dependencies..."
             yarn install --immutable
 
             # Manage PM2 Process
             APP_NAME="aroha"
             
+            echo "Checking PM2 status..."
             if pm2 show $APP_NAME > /dev/null; then
-              echo "Restarting $APP_NAME..."
-              # Reload allows zero-downtime (if cluster mode) or simple restart
+              echo "Process $APP_NAME exists. Reloading..."
               pm2 reload $APP_NAME --update-env
             else
-              echo "Starting $APP_NAME for the first time..."
-              # Start 'yarn start' with 'production' environment explicitly
+              echo "Process $APP_NAME not found. Starting..."
               pm2 start "yarn start" --name $APP_NAME --env production
             fi
             
-            # Save process list
             pm2 save
-
+            
             # Cleanup
+            echo "Cleaning up..."
             rm deploy.tar.gz
+            
+            echo "Deployment Finished Successfully."
