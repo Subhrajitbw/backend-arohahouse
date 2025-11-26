@@ -14,7 +14,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Setup Node
+      # 2. Setup Node (for building locally)
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -59,42 +59,28 @@ jobs:
             medusa-config.js
           echo "Bundle created: $(ls -lh deploy.tar.gz)"
 
-      # 👇 8. PRE-CLEANUP (With Verbose Logs)
+      # 8. PRE-CLEANUP (Crucial Fix)
+      # Ensures destination is clean before copy
       - name: Pre-Cleanup EC2
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          debug: true # 🔍 Shows SSH handshake details
+          debug: true
           script: |
-            set -x # 🔍 Prints every command before running it
+            set -x
+            echo "Running pre-cleanup..."
             
-            echo "Connecting as user: $(whoami)"
-            echo "Target directory: ${{ secrets.EC2_APP_DIR }}"
-            
-            # Check if directory exists before creating
-            if [ -d "${{ secrets.EC2_APP_DIR }}" ]; then
-              echo "Directory exists. Checking contents..."
-              ls -la ${{ secrets.EC2_APP_DIR }}
-            else
-              echo "Directory does not exist. Creating..."
-            fi
-            
+            # Create Directory if missing
             mkdir -p ${{ secrets.EC2_APP_DIR }}
             cd ${{ secrets.EC2_APP_DIR }}
             
-            echo "Current location: $(pwd)"
-            
-            # Force delete deploy.tar.gz
+            # Remove old tarball to prevent "File exists" error
             if [ -e "deploy.tar.gz" ]; then
-               echo "Found existing deploy.tar.gz. Deleting..."
                rm -rf deploy.tar.gz
-            else
-               echo "No existing deploy.tar.gz found."
             fi
-            
-            echo "Pre-cleanup complete."
+            echo "Cleanup complete."
 
       # 9. Copy Bundle to EC2
       - name: Copy bundle to EC2
@@ -103,81 +89,80 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          debug: true # 🔍 Shows SCP transfer details
           source: "deploy.tar.gz"
           target: "${{ secrets.EC2_APP_DIR }}"
 
-      # 10. Deploy & Start PM2 (With Verbose Logs)
+      # 10. Deploy & Start PM2 (Robust Version)
       - name: Deploy on EC2
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          debug: true # 🔍 Shows SSH handshake details
+          debug: true 
           script_stop: true
           script: |
-            set -x # 🔍 Prints every command
-            
+            set -x 
             echo "Starting Deployment Script..."
             
-            # Load NVM/Node
+            # --- ROBUST NODE LOADING ---
+            # 1. Try NVM (Standard Install)
             export NVM_DIR="$HOME/.nvm"
             if [ -s "$NVM_DIR/nvm.sh" ]; then
                \. "$NVM_DIR/nvm.sh"
-               echo "Node version: $(node -v)"
-               echo "NPM version: $(npm -v)"
-            else
-               echo "ERROR: NVM not found at $NVM_DIR"
-               exit 1
+            fi
+
+            # 2. Fallback to Global Path
+            if ! command -v node &> /dev/null; then
+                export PATH=$PATH:/usr/local/bin:/usr/bin:/bin
+            fi
+
+            # 3. Verify Node
+            if ! command -v node &> /dev/null; then
+                echo "CRITICAL ERROR: Node.js not found."
+                exit 1
             fi
             
-            # Ensure Corepack
+            echo "Using Node: $(node -v)"
+            
+            # --- DEPLOYMENT ---
+            
+            # Ensure Corepack / Yarn
+            if ! command -v corepack &> /dev/null; then
+                npm install -g corepack
+            fi
             corepack enable
             corepack prepare yarn@4.7.0 --activate
-            echo "Yarn version: $(yarn --version)"
             
             cd ${{ secrets.EC2_APP_DIR }}
-            echo "Changed directory to: $(pwd)"
 
             # Inject Production Secrets
-            echo "Injecting .env.production..."
             echo "${{ secrets.PROD_ENV_FILE }}" > .env.production
             
-            # Verify Tarball exists
-            if [ -f "deploy.tar.gz" ]; then
-               echo "deploy.tar.gz found. Size: $(du -h deploy.tar.gz)"
-            else
-               echo "CRITICAL ERROR: deploy.tar.gz missing!"
-               ls -la
+            # Verify File
+            if [ ! -f "deploy.tar.gz" ]; then
+               echo "Error: deploy.tar.gz missing!"
                exit 1
             fi
 
-            # Extract Bundle
-            echo "Extracting tarball..."
+            # Extract
             tar xzf deploy.tar.gz
-            echo "Extraction complete."
-
-            # Install Dependencies
-            echo "Installing dependencies..."
+            
+            # Install Deps
             yarn install --immutable
 
-            # Manage PM2 Process
+            # PM2 Management
             APP_NAME="aroha"
             
-            echo "Checking PM2 status..."
             if pm2 show $APP_NAME > /dev/null; then
-              echo "Process $APP_NAME exists. Reloading..."
+              echo "Reloading $APP_NAME..."
               pm2 reload $APP_NAME --update-env
             else
-              echo "Process $APP_NAME not found. Starting..."
-              pm2 start "yarn start" --name $APP_NAME --env production
+              echo "Starting $APP_NAME..."
+              NODE_ENV=production pm2 start "yarn start" --name $APP_NAME
             fi
             
             pm2 save
             
-            # Cleanup
-            echo "Cleaning up..."
             rm deploy.tar.gz
-            
-            echo "Deployment Finished Successfully."
+            echo "Deployment Finished."
