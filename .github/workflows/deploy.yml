@@ -1,0 +1,71 @@
+name: Build & Deploy Medusa
+
+on:
+  push:
+    branches:
+      - main    # change if you deploy from a different branch
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build Medusa backend + admin
+        run: yarn build
+        # which calls "medusa build" per your package.json
+
+      - name: Create deployment bundle
+        run: |
+          # Bundle only what you need at runtime
+          tar czf deploy.tar.gz \
+            .medusa \
+            package.json \
+            yarn.lock \
+            medusa-config.js
+
+          # .env is NOT included for security (it lives on the server)
+
+      - name: Copy bundle to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "deploy.tar.gz"
+          target: "${{ secrets.EC2_APP_DIR }}/deploy.tar.gz"
+
+      - name: Deploy on EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ${{ secrets.EC2_APP_DIR }}
+
+            # Extract the new build
+            tar xzf deploy.tar.gz
+
+            # Install dependencies only if node_modules doesn't exist yet
+            if [ ! -d "node_modules" ]; then
+              yarn install --production
+            fi
+
+            # Start or restart PM2 process
+            pm2 restart aroha || pm2 start "yarn start" --name aroha
+            pm2 save
+
+            # Clean up bundle
+            rm deploy.tar.gz

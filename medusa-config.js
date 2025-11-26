@@ -77,15 +77,15 @@ module.exports = defineConfig({
         apiKey: process.env.ALGOLIA_API_KEY,
         productIndexName: process.env.ALGOLIA_PRODUCT_INDEX_NAME,
       },
+    },  
+    {
+      resolve: "./src/modules/meilisearch",
+      options: {
+        host: process.env.MEILISEARCH_HOST,
+        apiKey: process.env.MEILISEARCH_API_KEY,
+        productIndexName: process.env.MEILISEARCH_PRODUCT_INDEX_NAME,
+      },
     },
-    // {
-    //   resolve: "./src/modules/meilisearch",
-    //   options: {
-    //     host: process.env.MEILISEARCH_HOST,
-    //     apiKey: process.env.MEILISEARCH_API_KEY,
-    //     productIndexName: process.env.MEILISEARCH_PRODUCT_INDEX_NAME,
-    //   },
-    // },
 
   ],
   plugins: [
