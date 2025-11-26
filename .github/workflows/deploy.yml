@@ -2,118 +2,120 @@ name: Deploy Medusa Backend to EC2
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # 1) Checkout repo
-    - name: Checkout code
-      uses: actions/checkout@v4
+      # 1) Checkout repo
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    # 2) Setup Node.js (no yarn cache here!)
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: "20"
+      # 2) Setup Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
-    # 3) Enable Corepack -> uses yarn@4.7.0 from packageManager
-    - name: Enable Corepack (Yarn Berry)
-      run: corepack enable
+      # 3) Enable Corepack -> uses yarn@4.7.0 from packageManager
+      - name: Enable Corepack (Yarn Berry)
+        run: corepack enable
 
-    # 4) Install dependencies with Yarn 4
-    - name: Install dependencies
-      run: yarn install --immutable
+      # 4) Install dependencies with Yarn 4
+      - name: Install dependencies
+        run: yarn install --immutable
 
-    # 5) Build Medusa app (backend + admin)
-    # package.json should have: "build": "medusa build"
-    - name: Build Medusa app
-      run: yarn build
-      env:
-        NODE_ENV: production
+      # 5) Build Medusa app (backend + admin)
+      - name: Build Medusa app
+        run: yarn build
+        env:
+          NODE_ENV: production
 
-    # 6) Package built artifacts
-    - name: Create build bundle
-      run: |
-        tar -czf build.tar.gz \
-          .medusa \
-          package.json \
-          yarn.lock \
-          medusa-config.* \
-          .yarnrc.yml
+      # 6) Package built artifacts (TS config + tsconfig included)
+      - name: Create build bundle
+        run: |
+          tar -czf build.tar.gz \
+            .medusa \
+            package.json \
+            yarn.lock \
+            medusa-config.ts \
+            tsconfig.json \
+            .yarnrc.yml
 
-    # 7) Copy bundle to EC2
-    - name: Copy bundle to EC2
-      uses: appleboy/scp-action@master
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ubuntu
-        key: ${{ secrets.EC2_SSH_KEY }}
-        source: "build.tar.gz"
-        target: "/var/www/medusa"
+      # 7) Copy bundle to EC2
+      - name: Copy bundle to EC2
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "build.tar.gz"
+          target: "/var/www/medusa"
 
-    # 8) Deploy on EC2
-    - name: Deploy on EC2
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ubuntu
-        key: ${{ secrets.EC2_SSH_KEY }}
-        script: |
-          set -e
+      # 8) Deploy on EC2
+      - name: Deploy on EC2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
 
-          cd /var/www/medusa
+            cd /var/www/medusa
 
-          # --- Write PROD_ENV_FILE into .env.production (root) ---
-          cat << 'EOF' > .env.production
-          ${{ secrets.PROD_ENV_FILE }}
-          EOF
+            # Clean old JS configs so Node/ts-node never picks them up
+            rm -f medusa-config.js medusa-config.cjs medusa-config.mjs
 
-          # Extract new build
-          if [ -f build.tar.gz ]; then
-            tar -xzf build.tar.gz
-            rm build.tar.gz
-          fi
+            # Extract new build
+            if [ -f build.tar.gz ]; then
+              tar -xzf build.tar.gz
+              rm build.tar.gz
+            fi
 
-          # If a global Yarn 1 exists, remove it so Corepack can control yarn
-          if command -v yarn >/dev/null 2>&1; then
-            YVER=$(yarn -v || echo "0")
-            case "$YVER" in
-              1.*)
-                echo "Removing global Yarn 1.x so Corepack can take over..."
-                sudo rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg || true
-                ;;
-            esac
-          fi
+            # Write environment file from secret into root
+            cat << 'EOF' > .env.production
+            ${{ secrets.PROD_ENV_FILE }}
+            EOF
 
-          # Enable Corepack on EC2
-          corepack enable
+            # If a global Yarn 1 exists, remove it so Corepack can control yarn
+            if command -v yarn >/dev/null 2>&1; then
+              YVER=$(yarn -v || echo "0")
+              case "$YVER" in
+                1.*)
+                  echo "Removing global Yarn 1.x so Corepack can take over..."
+                  sudo rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg || true
+                  ;;
+              esac
+            fi
 
-          # --- Install deps in ROOT so medusa CLI exists ---
-          yarn install --immutable
+            # Enable Corepack on EC2 (Yarn 4)
+            corepack enable
 
-          # --- Run DB migrations using medusa CLI (env from .env.production) ---
-          # We are in /var/www/medusa here, next to package.json and .env.production
-          yarn medusa db:migrate
+            # Install deps in project root (ts-node, tsconfig-paths, medusa CLI)
+            yarn install --immutable
 
-          # --- Now prepare the built server app ---
-          cd .medusa/server
+            # Run DB migrations using Medusa CLI (uses medusa-config.ts)
+            yarn medusa db:migrate
 
-          # Copy env file into server folder too (optional but nice)
-          cp /var/www/medusa/.env.production .env.production
+            # Go into built server app
+            cd .medusa/server
 
-          # Install prod deps for the built app
-          yarn install --immutable
+            # Copy env file into built server folder as well
+            cp /var/www/medusa/.env.production .env.production
 
-          # Start / reload with PM2 (from .medusa/server)
-          if pm2 describe medusa >/dev/null 2>&1; then
-            echo "Reloading existing PM2 process 'medusa'"
-            pm2 reload medusa
-          else
-            echo "Starting new PM2 process 'medusa'"
-            pm2 start yarn --name "medusa" -- start
-          fi
+            # Install prod deps for built app
+            yarn install --immutable
 
-          pm2 save
+            # Start / reload with PM2 from .medusa/server
+            if pm2 describe medusa >/dev/null 2>&1; then
+              echo "Reloading existing PM2 process 'medusa'"
+              pm2 reload medusa
+            else
+              echo "Starting new PM2 process 'medusa'"
+              pm2 start yarn --name "medusa" -- start
+            fi
+
+            pm2 save
