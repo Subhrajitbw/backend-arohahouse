@@ -1,4 +1,3 @@
-#Deploye script
 name: Deploy Medusa Backend to EC2
 
 on:
@@ -36,15 +35,15 @@ jobs:
 
       # 6) Package built artifacts (include src + TS config + tsconfig)
       - name: Create build bundle
-      run: |
-        tar -czf build.tar.gz \
-          .medusa \
-          src \
-          package.json \
-          yarn.lock \
-          medusa-config.ts \
-          tsconfig.json \
-          .yarnrc.yml
+        run: |
+          tar -czf build.tar.gz \
+            .medusa \
+            src \
+            package.json \
+            yarn.lock \
+            medusa-config.ts \
+            tsconfig.json \
+            .yarnrc.yml
 
       # 7) Copy bundle to EC2
       - name: Copy bundle to EC2
