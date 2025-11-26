@@ -33,16 +33,17 @@ jobs:
         env:
           NODE_ENV: production
 
-      # 6) Package built artifacts (TS config + tsconfig included)
+      # 6) Package built artifacts (include src + TS config + tsconfig)
       - name: Create build bundle
-        run: |
-          tar -czf build.tar.gz \
-            .medusa \
-            package.json \
-            yarn.lock \
-            medusa-config.ts \
-            tsconfig.json \
-            .yarnrc.yml
+      run: |
+        tar -czf build.tar.gz \
+          .medusa \
+          src \
+          package.json \
+          yarn.lock \
+          medusa-config.ts \
+          tsconfig.json \
+          .yarnrc.yml
 
       # 7) Copy bundle to EC2
       - name: Copy bundle to EC2
@@ -66,8 +67,9 @@ jobs:
 
             cd /var/www/medusa
 
-            # Clean old JS configs so Node/ts-node never picks them up
+            # Clean old configs / src so nothing stale sticks around
             rm -f medusa-config.js medusa-config.cjs medusa-config.mjs
+            rm -rf src
 
             # Extract new build
             if [ -f build.tar.gz ]; then
@@ -97,7 +99,7 @@ jobs:
             # Install deps in project root (ts-node, tsconfig-paths, medusa CLI)
             yarn install --immutable
 
-            # Run DB migrations using Medusa CLI (uses medusa-config.ts)
+            # Run DB migrations using Medusa CLI (uses medusa-config.ts + src/modules/*)
             yarn medusa db:migrate
 
             # Go into built server app
