@@ -43,11 +43,13 @@
     "@tsc_tech/medusa-plugin-product-variant-images": "^0.0.2",
     "algoliasearch": "^5.44.0",
     "awilix": "^8.0.1",
+    "ioredis": "^5.4.0",
     "lodash": "^4.17.21",
     "meilisearch": "0.47.0",
     "pg": "^8.13.3",
     "react-dropzone": "^14.3.8",
     "resend": "^4.1.2",
+    "tsconfig-paths": "^4.2.0",
     "zod": "3.25.76"
   },
   "devDependencies": {
