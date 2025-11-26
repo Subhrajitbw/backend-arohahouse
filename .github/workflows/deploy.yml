@@ -10,28 +10,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Check out the code
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 2. Setup Node (without cache, to prevent Yarn version conflict)
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          # 🔴 REMOVED: cache: yarn (This caused the crash)
 
-      # 👇 1. Enable Corepack FIRST so Yarn 4 works
+      # 3. Activate Yarn 4 before doing anything else
       - name: Enable Corepack and Yarn 4
         run: |
           corepack enable
           corepack prepare yarn@4.7.0 --activate
           yarn --version
 
-      # 👇 2. Now we can safely get the cache folder (since Yarn 4 is active)
+      # 4. Get Cache Path (Safe way for Yarn 4)
       - name: Get Yarn cache directory
         id: yarn-cache-dir-path
         run: echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
 
-      # 👇 3. Manually cache dependencies (Replaces 'cache: yarn')
+      # 5. Restore Cache manually
       - name: Restore Yarn cache
         uses: actions/cache@v4
         with:
@@ -40,12 +41,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-yarn-
 
+      # 6. Install dependencies
       - name: Install dependencies
         run: yarn install --immutable
 
+      # 7. Build the application
       - name: Build Medusa backend + admin
         run: yarn build
 
+      # 8. Create the deployment tarball
       - name: Create deployment bundle
         run: |
           tar czf deploy.tar.gz \
@@ -53,8 +57,9 @@ jobs:
             package.json \
             yarn.lock \
             medusa-config.js
-            # Add any other necessary files like 'src' if needed for runtime
+            # Add 'src' or 'public' here if your specific plugins need source files at runtime
 
+      # 9. Copy file to Server
       - name: Copy bundle to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -62,31 +67,59 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           source: "deploy.tar.gz"
-          target: "${{ secrets.EC2_APP_DIR }}/deploy.tar.gz"
+          # Targets the FOLDER so scp works correctly
+          target: "${{ secrets.EC2_APP_DIR }}"
 
+      # 10. Execute Deployment on Server
       - name: Deploy on EC2
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          script_stop: true # Stop if any command fails
           script: |
-            # Ensure EC2 also has Corepack enabled
+            # Load Node Environment (NVM)
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-            corepack enable
             
+            # Activate Yarn 4 on Server
+            corepack enable
+            corepack prepare yarn@4.7.0 --activate
+            
+            # Go to App Directory
             cd ${{ secrets.EC2_APP_DIR }}
 
-            # Extract the new build
+            # Write Secrets to .env.production
+            echo "${{ secrets.PROD_ENV_FILE }}" > .env.production
+
+            # Clean up any broken files/folders from previous failed runs
+            if [ -d "deploy.tar.gz" ]; then rm -rf deploy.tar.gz; fi
+
+            # Verify file exists
+            if [ ! -f "deploy.tar.gz" ]; then
+              echo "Error: deploy.tar.gz not found in ${{ secrets.EC2_APP_DIR }}"
+              exit 1
+            fi
+
+            # Extract Build
             tar xzf deploy.tar.gz
 
-            # Install dependencies
-            # Note: With Yarn 4, 'yarn workspaces focus --production' is often preferred over '--production=false' for partial installs
-            yarn install --mode=skip-builds
+            # Install Production Dependencies
+            # --immutable ensures we don't modify yarn.lock
+            yarn install --immutable
 
-            # Restart App
-            pm2 restart aroha || pm2 start "yarn start" --name aroha
+            # Start/Restart PM2
+            if pm2 show aroha > /dev/null; then
+              echo "Restarting application..."
+              pm2 restart aroha
+            else
+              echo "Starting application..."
+              # Start with NODE_ENV=production to read .env.production
+              NODE_ENV=production pm2 start "yarn start" --name aroha
+            fi
+            
+            # Save PM2 list for auto-start on reboot
             pm2 save
 
             # Cleanup
