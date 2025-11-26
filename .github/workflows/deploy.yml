@@ -1,168 +1,68 @@
-name: Build & Deploy Medusa
+name: Deploy Medusa to EC2
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Check out code
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      # 2. Setup Node (for building locally)
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'yarn'
 
-      # 3. Activate Yarn 4
-      - name: Enable Corepack and Yarn 4
-        run: |
-          corepack enable
-          corepack prepare yarn@4.7.0 --activate
-          yarn --version
+    - name: Install Dependencies
+      run: yarn install --frozen-lockfile
 
-      # 4. Setup Caching
-      - name: Get Yarn cache directory
-        id: yarn-cache-dir-path
-        run: echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
+    - name: Build Medusa (Admin + Backend)
+      run: yarn build
+      env:
+        # Add necessary build env vars here if needed
+        NODE_ENV: production
 
-      - name: Restore Yarn cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
-          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-yarn-
+    - name: Remove dev dependencies to save space
+      run: yarn install --production --ignore-scripts --prefer-offline
 
-      # 5. Install Dependencies (Local Build)
-      - name: Install dependencies
-        run: yarn install --immutable
+    - name: Compress Build Artifacts
+      run: tar -czf build.tar.gz .next .medusa dist package.json yarn.lock medusa-config.js public node_modules
 
-      # 6. Build Medusa
-      - name: Build Medusa backend + admin
-        run: yarn build
+    - name: Copy Files to EC2
+      uses: appleboy/scp-action@master
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ubuntu
+        key: ${{ secrets.EC2_SSH_KEY }}
+        source: "build.tar.gz"
+        target: "/var/www/medusa"
 
-      # 7. Create Deployment Bundle
-      - name: Create deployment bundle
-        run: |
-          echo "Creating deployment tarball..."
-          tar czvf deploy.tar.gz \
-            .medusa \
-            package.json \
-            yarn.lock \
-            medusa-config.js
-          echo "Bundle created: $(ls -lh deploy.tar.gz)"
-
-      # 8. PRE-CLEANUP (Crucial Fix)
-      # Ensures destination is clean before copy
-      - name: Pre-Cleanup EC2
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          debug: true
-          script: |
-            set -x
-            echo "Running pre-cleanup..."
-            
-            # Create Directory if missing
-            mkdir -p ${{ secrets.EC2_APP_DIR }}
-            cd ${{ secrets.EC2_APP_DIR }}
-            
-            # Remove old tarball to prevent "File exists" error
-            if [ -e "deploy.tar.gz" ]; then
-               rm -rf deploy.tar.gz
-            fi
-            echo "Cleanup complete."
-
-      # 9. Copy Bundle to EC2
-      - name: Copy bundle to EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "deploy.tar.gz"
-          target: "${{ secrets.EC2_APP_DIR }}"
-
-      # 10. Deploy & Start PM2 (Robust Version)
-      - name: Deploy on EC2
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          debug: true 
-          script_stop: true
-          script: |
-            set -x 
-            echo "Starting Deployment Script..."
-            
-            # --- ROBUST NODE LOADING ---
-            # 1. Try NVM (Standard Install)
-            export NVM_DIR="$HOME/.nvm"
-            if [ -s "$NVM_DIR/nvm.sh" ]; then
-               \. "$NVM_DIR/nvm.sh"
-            fi
-
-            # 2. Fallback to Global Path
-            if ! command -v node &> /dev/null; then
-                export PATH=$PATH:/usr/local/bin:/usr/bin:/bin
-            fi
-
-            # 3. Verify Node
-            if ! command -v node &> /dev/null; then
-                echo "CRITICAL ERROR: Node.js not found."
-                exit 1
-            fi
-            
-            echo "Using Node: $(node -v)"
-            
-            # --- DEPLOYMENT ---
-            
-            # Ensure Corepack / Yarn
-            if ! command -v corepack &> /dev/null; then
-                npm install -g corepack
-            fi
-            corepack enable
-            corepack prepare yarn@4.7.0 --activate
-            
-            cd ${{ secrets.EC2_APP_DIR }}
-
-            # Inject Production Secrets
-            echo "${{ secrets.PROD_ENV_FILE }}" > .env.production
-            
-            # Verify File
-            if [ ! -f "deploy.tar.gz" ]; then
-               echo "Error: deploy.tar.gz missing!"
-               exit 1
-            fi
-
-            # Extract
-            tar xzf deploy.tar.gz
-            
-            # Install Deps
-            yarn install --immutable
-
-            # PM2 Management
-            APP_NAME="aroha"
-            
-            if pm2 show $APP_NAME > /dev/null; then
-              echo "Reloading $APP_NAME..."
-              pm2 reload $APP_NAME --update-env
-            else
-              echo "Starting $APP_NAME..."
-              NODE_ENV=production pm2 start "yarn start" --name $APP_NAME
-            fi
-            
-            pm2 save
-            
-            rm deploy.tar.gz
-            echo "Deployment Finished."
+    - name: Deploy on EC2
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ubuntu
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          cd /var/www/medusa
+          # Extract files
+          tar -xzf build.tar.gz
+          rm build.tar.gz
+          
+          # Run Migrations (Optional: safer to run manually first time)
+          # npx medusa migrations run
+          
+          # Start/Restart App with PM2
+          pm2 describe medusa > /dev/null
+          if [ $? -eq 0 ]; then
+            pm2 reload medusa
+          else
+            # Start backend (adjust script if using custom start command)
+            pm2 start npm --name "medusa" -- start
+          fi
+          pm2 save
