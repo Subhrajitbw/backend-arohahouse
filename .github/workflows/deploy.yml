@@ -18,20 +18,30 @@ jobs:
         node-version: '20'
         cache: 'yarn'
 
+    - name: Enable Corepack (Yarn 4)
+      run: corepack enable
+
     - name: Install Dependencies
-      run: yarn install --frozen-lockfile
+      run: yarn install --immutable
 
     - name: Build Medusa (Admin + Backend)
       run: yarn build
       env:
-        # Add necessary build env vars here if needed
         NODE_ENV: production
 
-    - name: Remove dev dependencies to save space
-      run: yarn install --production --ignore-scripts --prefer-offline
+    # ❌ Remove this step, it breaks a Berry install
+    # - name: Remove dev dependencies to save space
+    #   run: yarn install --production --ignore-scripts --prefer-offline
 
     - name: Compress Build Artifacts
-      run: tar -czf build.tar.gz .next .medusa dist package.json yarn.lock medusa-config.js public node_modules
+      run: |
+        tar -czf build.tar.gz \
+          .medusa \
+          package.json \
+          yarn.lock \
+          medusa-config.js \
+          .yarn \
+          .pnp.cjs
 
     - name: Copy Files to EC2
       uses: appleboy/scp-action@master
@@ -50,19 +60,28 @@ jobs:
         key: ${{ secrets.EC2_SSH_KEY }}
         script: |
           cd /var/www/medusa
+
           # Extract files
           tar -xzf build.tar.gz
           rm build.tar.gz
-          
-          # Run Migrations (Optional: safer to run manually first time)
-          # npx medusa migrations run
-          
-          # Start/Restart App with PM2
-          pm2 describe medusa > /dev/null
+
+          # Ensure Corepack/Yarn 4 on EC2
+          corepack enable
+
+          cd .medusa/server
+
+          # Install prod deps for the built server
+          yarn install --immutable
+
+          # Run migrations (predeploy)
+          yarn predeploy
+
+          # Start/Restart App with PM2 (server mode)
+          pm2 describe aroha-server > /dev/null 2>&1
           if [ $? -eq 0 ]; then
-            pm2 reload medusa
+            pm2 reload aroha-server
           else
-            # Start backend (adjust script if using custom start command)
-            pm2 start npm --name "medusa" -- start
+            pm2 start yarn --name "aroha-server" -- start --cwd /var/www/medusa/.medusa/server
           fi
+
           pm2 save
