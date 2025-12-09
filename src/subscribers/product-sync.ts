@@ -19,5 +19,5 @@ export default async function handleProductEvents({
 }
 
 export const config: SubscriberConfig = {
-  event: ["product.created", "product.updated"],
+  event: ["product.created", "product.updated", 'product.deleted'],
 }

@@ -115,7 +115,7 @@ export default defineConfig({
         ...config,
         server: {
           ...(config.server || {}),
-          allowedHosts: [".arohahouse.com"],
+          //allowedHosts: [".arohahouse.com"],
         },
       }
     },

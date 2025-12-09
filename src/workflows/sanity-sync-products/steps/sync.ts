@@ -1,111 +1,130 @@
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk"
-import { ProductDTO } from "@medusajs/framework/types"
 import {
-    ContainerRegistrationKeys,
-    promiseAll,
+  ContainerRegistrationKeys,
+  promiseAll,
 } from "@medusajs/framework/utils"
 import SanityModuleService from "../../../modules/sanity/service"
 import { SANITY_MODULE } from "../../../modules/sanity"
 
 export type SyncStepInput = {
-    product_ids?: string[];
+  product_ids?: string[]
+}
+
+type UpsertRecord = {
+  before: { _id?: string } | null
+  after: { _id: string } | null
 }
 
 export const syncStep = createStep(
-    { name: "sync-step", async: true },
-    async (input: SyncStepInput, { container }) => {
-        const sanityModule: SanityModuleService = container.resolve(SANITY_MODULE)
-        const query = container.resolve(ContainerRegistrationKeys.QUERY)
+  "sync-step",
+  async (input: SyncStepInput, { container }) => {
+    const sanityModule: SanityModuleService = container.resolve(SANITY_MODULE)
+    const query = container.resolve(ContainerRegistrationKeys.QUERY)
 
-        let total = 0
-        const upsertMap: {
-            before: any
-            after: any
-        }[] = []
+    let total = 0
+    const upsertMap: UpsertRecord[] = []
 
-        const batchSize = 200
-        let hasMore = true
-        let offset = 0
-        let filters = input.product_ids ? {
-            id: input.product_ids,
-        } : {}
+    const batchSize = 200
+    let hasMore = true
+    let offset = 0
 
-        while (hasMore) {
-            const {
-                data: products,
-                metadata: { count } = {},
-            } = await query.graph({
-                entity: "product",
-                fields: [
-                    "id",
-                    "title",
-                    "sanity_product.*",
-                ],
-                filters,
-                pagination: {
-                    skip: offset,
-                    take: batchSize,
-                    order: {
-                        id: "ASC",
-                    },
-                },
-            })
+    const filters = input.product_ids ? { id: input.product_ids } : {}
 
-            // TODO sync products
-            try {
-                await promiseAll(
-                    products.map(async (prod) => {
-                        const after = await sanityModule.upsertSyncDocument(
-                            "product",
-                            prod as unknown as ProductDTO
-                        )
+    try {
+      while (hasMore) {
+        const {
+          data: products = [],
+          metadata: { count = 0 } = {},
+        } = await query.graph({
+          entity: "product",
+          fields: [
+            "id",
+            "title",
+            "handle",
+            "thumbnail",
+            "images.id",
+            "images.url",
+          ],
+          filters,
+          pagination: {
+            skip: offset,
+            take: batchSize,
+            order: { id: "ASC" },
+          },
+        })
 
-                        upsertMap.push({
-                            // @ts-ignore
-                            before: prod.sanity_product,
-                            after,
-                        })
+        if (!products.length) {
+          hasMore = false
+          break
+        }
 
-                        return after
-                    })
-                )
-            } catch (e) {
-                return StepResponse.permanentFailure(
-                    `An error occurred while syncing documents: ${e}`,
-                    upsertMap
-                )
+        await promiseAll(
+          products.map(async (prod: any) => {
+            // Get existing to preserve content
+            const existing = await sanityModule.retrieve(prod.id).catch(() => null)
+
+            const sanityPayload: any = {
+              _id: prod.id,
+              _type: "product",
+              medusaId: prod.id,
+              title: prod.title,
+              handle: prod.handle,
+              
+              // Sync R2 images
+              thumbnailR2: prod.thumbnail ? { url: prod.thumbnail } : null,
+              galleryR2: prod.images?.map((img: any) => ({
+                _key: img.id,
+                url: img.url,
+              })) || [],
+            }
+            
+            // Preserve content
+            if (existing) {
+              if (existing.shortDescription) sanityPayload.shortDescription = existing.shortDescription
+              if (existing.richDescription) sanityPayload.richDescription = existing.richDescription
+              if (existing.features) sanityPayload.features = existing.features
+              if (existing.specifications) sanityPayload.specifications = existing.specifications
+              if (existing.extraSections) sanityPayload.extraSections = existing.extraSections
+              
+              // Preserve product relations
+              if (existing.relatedProducts) sanityPayload.relatedProducts = existing.relatedProducts
+              if (existing.upsellProducts) sanityPayload.upsellProducts = existing.upsellProducts
+              if (existing.crosssellProducts) sanityPayload.crosssellProducts = existing.crosssellProducts
             }
 
-            offset += batchSize
-            hasMore = offset < count
-            total += products.length
+            const after = await sanityModule.upsertSyncDocument("product", sanityPayload)
 
-        }
-        return new StepResponse({ total }, upsertMap)
-    },
-    async (upsertMap, { container }) => {
-    if (!upsertMap) {
-      return
+            upsertMap.push({
+              before: { _id: prod.id },
+              after: after ?? null,
+            })
+
+            return after
+          })
+        )
+
+        offset += batchSize
+        hasMore = offset < count
+        total += products.length
+      }
+    } catch (e: any) {
+      throw new Error(`Sync error: ${e?.message ?? e}`)
     }
 
+    return new StepResponse({ total }, upsertMap)
+  },
+
+  async (upsertMap: UpsertRecord[] | undefined | null, { container }) => {
+    if (!upsertMap?.length) return
     const sanityModule: SanityModuleService = container.resolve(SANITY_MODULE)
 
     await promiseAll(
       upsertMap.map(({ before, after }) => {
-        if (!before) {
-          // delete the document
+        if (after && (!before || !before._id)) {
           return sanityModule.delete(after._id)
         }
-
-        const { _id: id, ...oldData } = before
-
-        return sanityModule.update(
-          id,
-          oldData
-        )
+        return Promise.resolve()
       })
     )
   }
-
 )
-

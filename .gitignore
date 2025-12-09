@@ -35,3 +35,7 @@ build
 node_modules
 medusa-config.server.js
 rename.js
+localhost+1-key.pem
+.gitignore
+Caddyfile
+localhost+1.pem

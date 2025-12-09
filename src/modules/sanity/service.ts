@@ -1,6 +1,5 @@
 import {
     Logger,
-    ProductDTO
 } from "@medusajs/framework/types"
 import {
     SanityClient,
@@ -29,32 +28,24 @@ type InjectedDependencies = {
     logger: Logger
 };
 
-type SyncDocumentInputs<T> = T extends "product"
-    ? ProductDTO
-    : never
-
-type TransformationMap<T> = Record<
-    SyncDocumentTypes,
-    (data: SyncDocumentInputs<T>) => any
->
+// RELAXED TYPE: Accept any object, not just ProductDTO
+type SyncDocumentInputs = Record<string, any>;
 
 class SanityModuleService {
     private client: SanityClient
     private studioUrl?: string
     private logger: Logger
     private typeMap: Record<SyncDocumentTypes, string>
-    private createTransformationMap: TransformationMap<SyncDocumentTypes>
-    private updateTransformationMap: TransformationMap<SyncDocumentTypes>
 
     constructor({
         logger,
     }: InjectedDependencies, options: ModuleOptions) {
-        // ...
         this.client = createClient({
             projectId: options.project_id,
             apiVersion: options.api_version,
             dataset: options.dataset,
             token: options.api_token,
+            useCdn: false, // Important for write operations
         })
         this.logger = logger
 
@@ -68,64 +59,58 @@ class SanityModuleService {
             },
             options.type_map || {}
         )
-
-        this.createTransformationMap = {
-            [SyncDocumentTypes.PRODUCT]: this.transformProductForCreate,
-        }
-
-        this.updateTransformationMap = {
-            [SyncDocumentTypes.PRODUCT]: this.transformProductForUpdate,
-        }
-    }
-    private transformProductForCreate = (product: ProductDTO) => {
-        return {
-            _type: this.typeMap[SyncDocumentTypes.PRODUCT],
-            _id: product.id,
-            title: product.title,
-            specs: [
-                {
-                    _key: product.id,
-                    _type: "spec",
-                    title: product.title,
-                    lang: "en",
-                },
-            ],
-        }
     }
 
-    private transformProductForUpdate = (product: ProductDTO) => {
-        return {
-            set: {
-                title: product.title,
-            },
-        }
-    }
-    async upsertSyncDocument<T extends SyncDocumentTypes>(
-        type: T,
-        data: SyncDocumentInputs<T>
+    // --- MAIN LOGIC: PASSTHROUGH ---
+    // We assume the Workflow Step has already formatted the data correctly.
+    
+    async upsertSyncDocument(
+        type: SyncDocumentTypes,
+        data: SyncDocumentInputs
     ) {
-        const existing = await this.client.getDocument(data.id)
+        // Use _id if present (from our workflow), otherwise fall back to id
+        const docId = data._id || data.id;
+        
+        const existing = await this.client.getDocument(docId)
         if (existing) {
             return await this.updateSyncDocument(type, data)
         }
 
         return await this.createSyncDocument(type, data)
     }
-    async createSyncDocument<T extends SyncDocumentTypes>(
-        type: T,
-        data: SyncDocumentInputs<T>,
+
+    async createSyncDocument(
+        type: SyncDocumentTypes,
+        data: SyncDocumentInputs,
         options?: FirstDocumentMutationOptions
     ) {
-        const doc = this.createTransformationMap[type](data)
+        // Ensure _type is set
+        const doc = {
+            ...data,
+            _type: this.typeMap[type], 
+            // Ensure _id is set (Sanity needs this to link back to Medusa)
+            _id: data._id || data.id 
+        }
         return await this.client.create(doc, options)
     }
-    async updateSyncDocument<T extends SyncDocumentTypes>(
-        type: T,
-        data: SyncDocumentInputs<T>
+
+    async updateSyncDocument(
+        type: SyncDocumentTypes,
+        data: SyncDocumentInputs
     ) {
-        const operations = this.updateTransformationMap[type](data)
-        return await this.client.patch(data.id, operations).commit()
+        const docId = data._id || data.id;
+        
+        // Remove sensitive fields we shouldn't overwrite like _id or _type in a patch
+        const { _id, _type, id, medusaId, ...updateData } = data;
+
+        // Perform a patch
+        return await this.client.patch(docId)
+            .set(updateData) // Update all fields provided by the workflow
+            .commit()
     }
+
+    // --- UTILS ---
+
     async retrieve(id: string) {
         return this.client.getDocument(id)
     }
@@ -140,15 +125,10 @@ class SanityModuleService {
         }).commit()
     }
 
-    async list(
-        filter: {
-            id: string | string[]
-        }
-    ) {
+    async list(filter: { id: string | string[] }) {
         const data = await this.client.getDocuments(
             Array.isArray(filter.id) ? filter.id : [filter.id]
         )
-
         return data.map((doc) => ({
             id: doc?._id,
             ...doc,
@@ -156,18 +136,16 @@ class SanityModuleService {
     }
 
     async getStudioLink(
-    type: string,
-    id: string,
-    config: { explicit_type?: boolean } = {}
-  ) {
-    const resolvedType = config.explicit_type ? type : this.typeMap[type]
-    if (!this.studioUrl) {
-      throw new Error("No studio URL provided")
+        type: string,
+        id: string,
+        config: { explicit_type?: boolean } = {}
+    ) {
+        const resolvedType = config.explicit_type ? type : this.typeMap[type as SyncDocumentTypes]
+        if (!this.studioUrl) {
+            throw new Error("No studio URL provided")
+        }
+        return `${this.studioUrl}/structure/${resolvedType};${id}`
     }
-    return `${this.studioUrl}/structure/${resolvedType};${id}`
-  }
-
-
 }
 
 export default SanityModuleService
