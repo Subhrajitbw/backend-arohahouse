@@ -100,7 +100,10 @@ jobs:
             yarn install --immutable
 
             # Run DB migrations using Medusa CLI (uses medusa-config.ts + src/modules/*)
-            yarn medusa db:migrate
+            export MEDUSA_DISABLE_LINK_SYNC_PROMPTS=true
+            export NODE_ENV=production
+            yarn medusa db:migrate --yes
+
 
             # Go into built server app
             cd .medusa/server
