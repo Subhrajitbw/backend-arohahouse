@@ -1,0 +1,45 @@
+name: Convert Raw Images to WebP
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: ["image_conversion"]
+
+concurrency:
+  group: image-conversion
+  cancel-in-progress: false
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install conversion dependencies
+        run: npm install --no-save sharp @aws-sdk/client-s3
+
+      - name: Convert and upload WebP
+        env:
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+          R2_RAW_PREFIX: ${{ secrets.R2_RAW_PREFIX }}
+          R2_WEBP_PREFIX: ${{ secrets.R2_WEBP_PREFIX }}
+          MEDUSA_PENDING_URL: ${{ secrets.MEDUSA_PENDING_URL }}
+          MEDUSA_CALLBACK_URL: ${{ secrets.MEDUSA_CALLBACK_URL }}
+          IMAGE_CONVERSION_TOKEN: ${{ secrets.IMAGE_CONVERSION_TOKEN }}
+          WEBP_QUALITY: ${{ secrets.WEBP_QUALITY }}
+          MAX_WIDTH: ${{ secrets.MAX_WIDTH }}
+          MAX_TASKS: ${{ secrets.MAX_TASKS }}
+          PENDING_LIMIT: ${{ secrets.PENDING_LIMIT }}
+          MAX_PAGES: ${{ secrets.MAX_PAGES }}
+          UPDATED_AT_GTE: ${{ secrets.UPDATED_AT_GTE }}
+        run: node scripts/image-conversions/convert-r2-images.mjs

@@ -46,6 +46,7 @@
     "awilix": "^8.0.1",
     "ioredis": "^5.4.0",
     "lodash": "^4.17.21",
+"medusa-plugin-smart-rbac": "file:./medusa-plugin-smart-rbac",
     "meilisearch": "0.47.0",
     "pg": "^8.13.3",
     "react-dropzone": "^14.3.8",

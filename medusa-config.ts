@@ -108,6 +108,7 @@ export default defineConfig({
       resolve: "@agilo/medusa-analytics-plugin",
       options: {},
     },
+    
   ],
   admin: {
     vite: (config) => {

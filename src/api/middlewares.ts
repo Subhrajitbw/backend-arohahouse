@@ -4,6 +4,7 @@ import { authenticate, validateAndTransformBody } from "@medusajs/framework";
 
 import { CreateCategoryImagesSchema } from "./admin/categories/[category_id]/images/route";
 import { UpdateCategoryImagesSchema, DeleteCategoryImagesSchema } from "./admin/categories/[category_id]/images/batch/route";
+import { ImageConversionCallbackSchema } from "./admin/image-conversions/callback/route";
 
 export default defineMiddlewares([
   ...adminProductTypeRoutesMiddlewares,
@@ -30,5 +31,10 @@ export default defineMiddlewares([
     matcher: "/admin/categories/:category_id/images/batch",
     method: ["DELETE"],
     middlewares: [validateAndTransformBody(DeleteCategoryImagesSchema)],
+  },
+  {
+    matcher: "/admin/image-conversions/callback",
+    method: ["POST"],
+    middlewares: [validateAndTransformBody(ImageConversionCallbackSchema)],
   },
 ]);
