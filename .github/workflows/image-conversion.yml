@@ -22,7 +22,7 @@ jobs:
           node-version: "20"
 
       - name: Install conversion dependencies
-        run: npm install --no-save sharp @aws-sdk/client-s3
+        run: npm install --no-save sharp @aws-sdk/client-s3 --legacy-peer-deps
 
       - name: Convert and upload WebP
         env:
