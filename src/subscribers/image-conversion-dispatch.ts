@@ -73,7 +73,7 @@ export default async function imageConversionDispatchSubscriber({
   const rawPrefix =
     normalizePrefix(process.env.IMAGE_CONVERSION_RAW_PREFIX) ||
     normalizePrefix(process.env.R2_RAW_PREFIX) ||
-    "uploads/raw/"
+    ""
 
   if (!baseUrl) {
     console.log(

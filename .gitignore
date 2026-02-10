@@ -39,5 +39,4 @@ localhost+1-key.pem
 .gitignore
 Caddyfile
 localhost+1.pem
-medusa-config.ts
 src/.DS_Store

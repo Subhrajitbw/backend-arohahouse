@@ -33,6 +33,10 @@ export default defineConfig({
               region: process.env.S3_REGION!,
               bucket: process.env.S3_BUCKET!,
               endpoint: process.env.S3_ENDPOINT,
+              prefix:
+                process.env.IMAGE_CONVERSION_RAW_PREFIX ??
+                process.env.R2_RAW_PREFIX ??
+                "",
             },
           },
         ],
