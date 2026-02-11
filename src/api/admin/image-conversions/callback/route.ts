@@ -43,7 +43,14 @@ export async function POST(
     ? headerValue[0]
     : headerValue
 
+  logger.info(
+    `[image-conversion] provided token length=${providedToken?.length ?? 0}`
+  )
+
   if (!providedToken || providedToken !== expectedToken) {
+    logger.info(
+      `[image-conversion] token match=false`
+    )
     res.status(401).json({ error: "Unauthorized" })
     return
   }
