@@ -38,6 +38,7 @@ export async function POST(
   logger.info(
     `[image-conversion] token length=${expectedToken.length}`
   )
+  console.log(`[image-conversion] token length=${expectedToken.length}`)
 
   const headerValue = req.headers[TOKEN_HEADER]
   const providedTokenRaw = Array.isArray(headerValue)
@@ -48,11 +49,15 @@ export async function POST(
   logger.info(
     `[image-conversion] provided token length=${providedToken?.length ?? 0}`
   )
+  console.log(
+    `[image-conversion] provided token length=${providedToken?.length ?? 0}`
+  )
 
   if (!providedToken || providedToken !== expectedToken) {
     logger.info(
       `[image-conversion] token match=false`
     )
+    console.log(`[image-conversion] token match=false`)
     res.status(401).json({ error: "Unauthorized" })
     return
   }
