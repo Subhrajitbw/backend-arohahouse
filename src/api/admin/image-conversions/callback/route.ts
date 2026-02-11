@@ -26,12 +26,17 @@ export async function POST(
   res: MedusaResponse
 ): Promise<void> {
   const expectedToken = process.env.IMAGE_CONVERSION_TOKEN
+  const logger = req.scope.resolve("logger")
   if (!expectedToken) {
     res.status(500).json({
       error: "IMAGE_CONVERSION_TOKEN is not configured",
     })
     return
   }
+
+  logger.info(
+    `[image-conversion] token length=${expectedToken}`
+  )
 
   const headerValue = req.headers[TOKEN_HEADER]
   const providedToken = Array.isArray(headerValue)
