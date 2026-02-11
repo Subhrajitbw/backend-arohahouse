@@ -136,6 +136,9 @@ const uploadWebp = async (key, body) => {
 }
 
 const fetchPendingProducts = async (offset) => {
+  console.log(
+    `MEDUSA_PENDING_URL="${MEDUSA_PENDING_URL}" (length ${MEDUSA_PENDING_URL?.length ?? 0})`
+  )
   const url = new URL(MEDUSA_PENDING_URL)
   url.searchParams.set("limit", String(PENDING_LIMIT))
   url.searchParams.set("offset", String(offset))
@@ -255,6 +258,12 @@ const processProductImages = async ({ productId, urls, thumbnail }) => {
 const main = async () => {
   const dispatchPayload = await readDispatchPayload()
   if (dispatchPayload?.product_id && Array.isArray(dispatchPayload.images)) {
+    console.log(
+      `Repository dispatch payload received for product ${dispatchPayload.product_id} with ${dispatchPayload.images.length} image(s).`
+    )
+    console.log(
+      `Dispatch image URLs: ${dispatchPayload.images.join(", ")}`
+    )
     const urls = dispatchPayload.images.filter((url) => typeof url === "string")
     const processed = await processProductImages({
       productId: dispatchPayload.product_id,
@@ -262,6 +271,13 @@ const main = async () => {
       thumbnail: dispatchPayload.thumbnail,
     })
     console.log(`Done. Converted ${processed} image(s).`)
+    return
+  }
+
+  if (!MEDUSA_PENDING_URL) {
+    console.log(
+      "No repository_dispatch payload and MEDUSA_PENDING_URL is missing. Exiting."
+    )
     return
   }
 
