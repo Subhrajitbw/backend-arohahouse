@@ -164,12 +164,12 @@ const readDispatchPayload = async () => {
   if (!process.env.GITHUB_EVENT_PATH) {
     return null
   }
+  if (process.env.GITHUB_EVENT_NAME !== "repository_dispatch") {
+    return null
+  }
   const fs = await import("node:fs/promises")
   const raw = await fs.readFile(process.env.GITHUB_EVENT_PATH, "utf-8")
   const payload = JSON.parse(raw)
-  if (payload?.event_name !== "repository_dispatch") {
-    return null
-  }
   return payload?.client_payload || null
 }
 
@@ -256,6 +256,9 @@ const processProductImages = async ({ productId, urls, thumbnail }) => {
 }
 
 const main = async () => {
+  console.log(
+    `GITHUB_EVENT_NAME="${process.env.GITHUB_EVENT_NAME ?? ""}"`
+  )
   const dispatchPayload = await readDispatchPayload()
   if (dispatchPayload?.product_id && Array.isArray(dispatchPayload.images)) {
     console.log(
