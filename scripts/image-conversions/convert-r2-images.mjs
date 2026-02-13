@@ -1,4 +1,10 @@
-import { S3Client, HeadObjectCommand, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3"
+import {
+  S3Client,
+  HeadObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  DeleteObjectCommand,
+} from "@aws-sdk/client-s3"
 import sharp from "sharp"
 
 const requiredEnv = [
@@ -43,6 +49,10 @@ const MAX_PAGES = Number(process.env.MAX_PAGES || 5)
 const UPDATED_AT_GTE = process.env.UPDATED_AT_GTE
 const WEBP_QUALITY = Number(process.env.WEBP_QUALITY || 80)
 const MAX_WIDTH = process.env.MAX_WIDTH ? Number(process.env.MAX_WIDTH) : undefined
+const DELETE_RAW_AFTER_CONVERSION =
+  String(process.env.DELETE_RAW_AFTER_CONVERSION ?? "true").toLowerCase() !==
+  "false"
+const R2_DELETE_PREFIX = process.env.R2_DELETE_PREFIX || ""
 
 const rawPrefix = normalizePrefix(R2_RAW_PREFIX)
 const webpPrefix = normalizePrefix(R2_WEBP_PREFIX)
@@ -131,6 +141,16 @@ const uploadWebp = async (key, body) => {
       Key: key,
       Body: body,
       ContentType: "image/webp",
+    })
+  )
+}
+
+const deleteRaw = async (key) => {
+  const deleteKey = `${R2_DELETE_PREFIX}${key}`
+  await s3.send(
+    new DeleteObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: deleteKey,
     })
   )
 }
@@ -224,6 +244,15 @@ const processImage = async ({ product, originalUrl, isThumbnail }) => {
     webp_url: webpUrl,
     ...(isThumbnail ? { thumbnail_url: webpUrl } : {}),
   })
+
+  if (DELETE_RAW_AFTER_CONVERSION) {
+    try {
+      await deleteRaw(rawKey)
+      console.log(`Deleted raw image: ${rawKey}`)
+    } catch (error) {
+      console.error(`Failed to delete raw image ${rawKey}:`, error)
+    }
+  }
 
   return { skipped: false, webpUrl }
 }

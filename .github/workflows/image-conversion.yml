@@ -12,17 +12,10 @@ concurrency:
 jobs:
   convert:
     runs-on: ubuntu-latest
+    container: ghcr.io/${{ github.repository }}/image-conversion:latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install conversion dependencies
-        run: npm install --no-save sharp @aws-sdk/client-s3 --legacy-peer-deps
 
       - name: Convert and upload WebP
         env:
@@ -42,4 +35,4 @@ jobs:
           PENDING_LIMIT: ${{ secrets.PENDING_LIMIT }}
           MAX_PAGES: ${{ secrets.MAX_PAGES }}
           UPDATED_AT_GTE: ${{ secrets.UPDATED_AT_GTE }}
-        run: node scripts/image-conversions/convert-r2-images.mjs
+        run: node /app/convert-r2-images.mjs
