@@ -25,6 +25,17 @@ export async function POST(
   req: MedusaRequest<ImageConversionCallbackInput>,
   res: MedusaResponse
 ): Promise<void> {
+  const parsedBody = ImageConversionCallbackSchema.safeParse(
+    req.body ?? req.validatedBody
+  )
+  if (!parsedBody.success) {
+    res.status(400).json({
+      error: "Invalid payload",
+      details: parsedBody.error.flatten().fieldErrors,
+    })
+    return
+  }
+
   const expectedTokenRaw = process.env.IMAGE_CONVERSION_TOKEN
   if (!expectedTokenRaw) {
     res.status(500).json({
@@ -46,7 +57,7 @@ export async function POST(
   }
 
   const { product_id, original_url, webp_url, thumbnail_url } =
-    req.validatedBody
+    parsedBody.data
 
   const productModuleService = req.scope.resolve<IProductModuleService>(
     Modules.PRODUCT
