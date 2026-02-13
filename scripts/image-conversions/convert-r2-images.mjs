@@ -67,7 +67,7 @@ const normalizeUrl = (value) => stripQueryAndHash(value).trim()
 
 const isSupportedImage = (urlOrKey) => {
   const lower = urlOrKey.toLowerCase()
-  return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+  return lower.endsWith(".png")
 }
 
 const buildPublicUrl = (key) => `${publicBaseUrl}/${key.replace(/^\/+/, "")}`

@@ -95,14 +95,18 @@ export default async function imageConversionDispatchSubscriber({
 
   for (const image of product.images ?? []) {
     const url = image?.url ? stripQueryAndHash(image.url) : undefined
-    if (url && url.startsWith(rawPrefixUrl)) {
+    if (
+      url &&
+      url.startsWith(rawPrefixUrl) &&
+      url.toLowerCase().endsWith(".png")
+    ) {
       candidates.add(image.url)
     }
   }
 
   if (product.thumbnail) {
     const thumb = stripQueryAndHash(product.thumbnail)
-    if (thumb.startsWith(rawPrefixUrl)) {
+    if (thumb.startsWith(rawPrefixUrl) && thumb.toLowerCase().endsWith(".png")) {
       candidates.add(product.thumbnail)
     }
   }
