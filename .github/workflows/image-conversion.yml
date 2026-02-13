@@ -12,7 +12,7 @@ concurrency:
 jobs:
   convert:
     runs-on: ubuntu-latest
-    container: ghcr.io/${{ github.repository }}/image-conversion:latest
+    container: ghcr.io/subhrajitbw/backend-arohahouse/image-conversion:latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4

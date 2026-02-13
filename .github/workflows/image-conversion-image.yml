@@ -20,6 +20,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set image tag
+        run: echo "IMAGE_TAG=ghcr.io/subhrajitbw/backend-arohahouse/image-conversion:latest" >> $GITHUB_ENV
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -39,4 +42,4 @@ jobs:
           context: .
           file: docker/image-conversion/Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository }}/image-conversion:latest
+          tags: ${{ env.IMAGE_TAG }}
