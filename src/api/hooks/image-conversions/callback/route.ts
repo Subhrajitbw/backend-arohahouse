@@ -78,6 +78,14 @@ export async function POST(
     .filter((image) => stripQueryAndHash(image.url) === normalizedOriginal)
     .map((image) => ({ id: image.id, url: webp_url }))
 
+  const mergedImages = images.map((image) => {
+    const match = stripQueryAndHash(image.url) === normalizedOriginal
+    return {
+      id: image.id,
+      url: match ? webp_url : image.url,
+    }
+  })
+
   let updatedThumbnail: string | undefined
   if (
     product.thumbnail &&
@@ -114,7 +122,7 @@ export async function POST(
   }
 
   await productModuleService.updateProducts(product_id, {
-    images: imageUpdates.length ? imageUpdates : undefined,
+    images: imageUpdates.length ? mergedImages : undefined,
     thumbnail: updatedThumbnail,
   })
 
