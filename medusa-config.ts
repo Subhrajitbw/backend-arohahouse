@@ -2,23 +2,60 @@ import { loadEnv, defineConfig } from "@medusajs/framework/utils"
 
 loadEnv(process.env.NODE_ENV || "development", process.cwd())
 
+/**
+ * LOCAL DEV SAFE DEFAULTS
+ * Do NOT rely on dynamic localhost detection.
+ * Be explicit to avoid session + CORS failures.
+ */
+
+const adminCors =
+  process.env.ADMIN_CORS ||
+  "http://localhost:9000,http://127.0.0.1:9000"
+
+const authCors =
+  process.env.AUTH_CORS ||
+  "http://localhost:9000,http://127.0.0.1:9000"
+
+const storeCors =
+  process.env.STORE_CORS ||
+  "http://localhost:5173,http://127.0.0.1:5173"
+
 export default defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL!,
+
     databaseDriverOptions: {
-      ssl: { rejectUnauthorized: false },
-      connection: { ssl: { rejectUnauthorized: false } },
+      ssl: {
+        rejectUnauthorized: false,
+      },
     },
+
     redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
+
     http: {
-      storeCors: process.env.STORE_CORS!,
-      adminCors: process.env.ADMIN_CORS!,
-      authCors: process.env.AUTH_CORS!,
-      jwtSecret: process.env.JWT_SECRET || "supersecret",
-      cookieSecret: process.env.COOKIE_SECRET || "supersecret",
+      storeCors,
+      adminCors,
+      authCors,
+      jwtSecret: process.env.JWT_SECRET!,
+      cookieSecret: process.env.COOKIE_SECRET!,
+    },
+
+    /**
+     * IMPORTANT:
+     * Explicit cookie config prevents "Session not found"
+     * in local development.
+     */
+    cookieOptions: {
+      secure: false,      // MUST be false in local HTTP
+      sameSite: "lax",    // Required for local admin auth
+      httpOnly: true,
     },
   },
+
   modules: [
+    /**
+     * FILE STORAGE (R2 / S3)
+     */
     {
       resolve: "@medusajs/medusa/file",
       options: {
@@ -42,12 +79,23 @@ export default defineConfig({
         ],
       },
     },
+
+    /**
+     * CUSTOM MODULES
+     */
     {
       resolve: "./src/modules/product-media",
     },
     {
       resolve: "./src/modules/fashion",
     },
+    {
+      resolve: "./src/modules/rbac",
+    },
+
+    /**
+     * NOTIFICATIONS
+     */
     {
       resolve: "@medusajs/medusa/notification",
       options: {
@@ -64,20 +112,28 @@ export default defineConfig({
         ],
       },
     },
+
+    /**
+     * SANITY SYNC MODULE
+     */
     {
       resolve: "./src/modules/sanity",
       options: {
-        api_token: process.env.SANITY_API_TOKEN!,
-        project_id: process.env.SANITY_PROJECT_ID!,
-        api_version: new Date().toISOString().split("T")[0],
+        api_token: process.env.SANITY_API_TOKEN,
+        project_id: process.env.SANITY_PROJECT_ID,
+        // Use a fixed version string
+        api_version: "2023-01-01",
         dataset: "production",
-        studio_url:
-          process.env.SANITY_STUDIO_URL || "http://localhost:3000/studio",
+        studio_url: process.env.SANITY_STUDIO_URL || "http://localhost:3000/studio",
         type_map: {
           product: "product",
         },
       },
     },
+
+    /**
+     * SEARCH MODULES
+     */
     {
       resolve: "./src/modules/algolia",
       options: {
@@ -95,6 +151,7 @@ export default defineConfig({
       },
     },
   ],
+
   plugins: [
     {
       resolve: "@tsc_tech/medusa-plugin-product-seo",
@@ -112,15 +169,17 @@ export default defineConfig({
       resolve: "@agilo/medusa-analytics-plugin",
       options: {},
     },
-    
   ],
+
+  /**
+   * ADMIN CONFIG
+   */
   admin: {
     vite: (config) => {
       return {
         ...config,
         server: {
           ...(config.server || {}),
-          //allowedHosts: [".arohahouse.com"],
         },
       }
     },

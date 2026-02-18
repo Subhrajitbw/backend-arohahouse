@@ -40,16 +40,27 @@ class SanityModuleService {
     constructor({
         logger,
     }: InjectedDependencies, options: ModuleOptions) {
-        this.client = createClient({
-            projectId: options.project_id,
-            apiVersion: options.api_version,
-            dataset: options.dataset,
-            token: options.api_token,
-            useCdn: false, // Important for write operations
-        })
         this.logger = logger
 
-        this.logger.info("Connected to Sanity")
+        // --- DEBUG LOGS ---
+        this.logger.info("--- Sanity Module Initialization ---")
+        this.logger.info(`Project ID: ${options.project_id}`)
+        this.logger.info(`Dataset: ${options.dataset}`)
+        this.logger.info(`Token Present: ${!!options.api_token}`)
+        if (options.api_token) {
+            this.logger.info(`Token starts with: ${options.api_token.substring(0, 5)}...`)
+        }
+        // -------------------
+
+        this.client = createClient({
+            projectId: options.project_id,
+            apiVersion: options.api_version || "2023-01-01",
+            dataset: options.dataset,
+            token: options.api_token,
+            useCdn: false, 
+        })
+
+        this.logger.info("Sanity Client instance created")
 
         this.studioUrl = options.studio_url
         this.typeMap = Object.assign(

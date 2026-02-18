@@ -7,8 +7,8 @@ import { z } from 'zod';
 
 import { ImageField, imageFieldSchema } from '../components/Form/ImageField';
 import { Form } from '../components/Form/Form';
-import { TextareaField } from '../components/Form/TextareaField';
 import { InputField } from '../components/Form/InputField';
+import { MarkdownField } from '../components/Form/MarkdownField';
 
 const detailsFormSchema = z.object({
   image: imageFieldSchema().optional(),
@@ -63,7 +63,7 @@ const UpdateDetailsDrawer: React.FC<{
                 label="Image"
                 dropzoneRootClassName="h-60"
               />
-              <TextareaField name="description" label="Description" />
+              <MarkdownField name="description" label="Description" />
               <ImageField
                 name="collection_page_image"
                 label="Collection page image"
@@ -73,7 +73,7 @@ const UpdateDetailsDrawer: React.FC<{
                 name="collection_page_heading"
                 label="Collection page heading"
               />
-              <TextareaField
+              <MarkdownField
                 name="collection_page_content"
                 label="Collection page content"
               />
