@@ -23,32 +23,17 @@ const storeCors =
 export default defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL!,
-
     databaseDriverOptions: {
-      ssl: {
-        rejectUnauthorized: false,
-      },
+      ssl: { rejectUnauthorized: false },
+      connection: { ssl: { rejectUnauthorized: false } },
     },
-
     redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
-
     http: {
-      storeCors,
-      adminCors,
-      authCors,
-      jwtSecret: process.env.JWT_SECRET!,
-      cookieSecret: process.env.COOKIE_SECRET!,
-    },
-
-    /**
-     * IMPORTANT:
-     * Explicit cookie config prevents "Session not found"
-     * in local development.
-     */
-    cookieOptions: {
-      secure: false,      // MUST be false in local HTTP
-      sameSite: "lax",    // Required for local admin auth
-      httpOnly: true,
+      storeCors: process.env.STORE_CORS!,
+      adminCors: process.env.ADMIN_CORS!,
+      authCors: process.env.AUTH_CORS!,
+      jwtSecret: process.env.JWT_SECRET || "supersecret",
+      cookieSecret: process.env.COOKIE_SECRET || "supersecret",
     },
   },
 
