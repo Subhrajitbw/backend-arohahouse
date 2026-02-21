@@ -74,9 +74,7 @@ export default defineConfig({
     {
       resolve: "./src/modules/fashion",
     },
-    {
-      resolve: "./src/modules/rbac",
-    },
+    
 
     /**
      * NOTIFICATIONS
