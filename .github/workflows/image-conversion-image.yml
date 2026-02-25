@@ -21,8 +21,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ↓ Make the owner/repo lowercase so Docker accepts it
+      - name: Lowercase repository slug
+        run: echo "IMAGE_REPO=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+
       - name: Set image tag
-        run: echo "IMAGE_TAG=ghcr.io/${{ github.repository_owner }}/backend-arohahouse/image-conversion:latest" >> $GITHUB_ENV
+        run: |
+          echo "IMAGE_TAG=ghcr.io/${{ env.IMAGE_REPO }}/image-conversion:latest" >> $GITHUB_ENV
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
