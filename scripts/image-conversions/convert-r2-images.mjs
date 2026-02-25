@@ -1,3 +1,4 @@
+import fs from "node:fs/promises"
 import {
   S3Client,
   HeadObjectCommand,
@@ -7,6 +8,10 @@ import {
 } from "@aws-sdk/client-s3"
 import sharp from "sharp"
 
+//
+// ENV CHECKS
+//
+
 const requiredEnv = [
   "R2_ENDPOINT",
   "R2_BUCKET",
@@ -15,18 +20,13 @@ const requiredEnv = [
   "R2_PUBLIC_BASE_URL",
   "R2_RAW_PREFIX",
   "R2_WEBP_PREFIX",
-  "MEDUSA_PENDING_URL",
   "MEDUSA_CALLBACK_URL",
   "IMAGE_CONVERSION_TOKEN",
 ]
 
-const hasDispatchPayload = Boolean(process.env.GITHUB_EVENT_PATH)
-const requiredForPolling = requiredEnv.filter((key) => key !== "MEDUSA_PENDING_URL")
-const missing = (hasDispatchPayload ? requiredForPolling : requiredEnv).filter(
-  (key) => !process.env[key]
-)
+const missing = requiredEnv.filter((key) => !process.env[key])
 if (missing.length) {
-  console.error(`Missing required env vars: ${missing.join(", ")}`)
+  console.error(`❌ Missing required environment vars: ${missing.join(", ")}`)
   process.exit(1)
 }
 
@@ -46,10 +46,13 @@ const {
 const MAX_TASKS = Number(process.env.MAX_TASKS || 25)
 const PENDING_LIMIT = Math.min(Number(process.env.PENDING_LIMIT || 50), 200)
 const MAX_PAGES = Number(process.env.MAX_PAGES || 5)
-const UPDATED_AT_GTE = process.env.UPDATED_AT_GTE
 const MAX_WIDTH = Number(process.env.MAX_WIDTH || 2000)
-const DELETE_RAW_AFTER_CONVERSION =
-  String(process.env.DELETE_RAW_AFTER_CONVERSION ?? "true").toLowerCase() !== "false"
+const DELETE_RAW_AFTER_CONVERSION = String(process.env.DELETE_RAW_AFTER_CONVERSION ?? "true") !== "false"
+
+
+//
+// R2 CLIENT
+//
 
 const rawPrefix = normalizePrefix(R2_RAW_PREFIX)
 const webpPrefix = normalizePrefix(R2_WEBP_PREFIX)
@@ -65,14 +68,25 @@ const s3 = new S3Client({
   forcePathStyle: true,
 })
 
-// strip query and hash from URL
-const normalizeUrl = (value) =>
-  value.split(/[?#]/)[0].trim()
 
-// Valid source image formats
-const isSupportedImage = (urlOrKey) => {
-  const lower = urlOrKey.toLowerCase()
-  return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+//
+// HELPERS
+//
+
+function normalizePrefix(value) {
+  const t = value.trim().replace(/^\/+/, "")
+  return t.endsWith("/") ? t : `${t}/`
+}
+
+function normalizeBaseUrl(value) {
+  return value.trim().replace(/\/+$/, "")
+}
+
+const normalizeUrl = (value) => value.split(/[?#]/)[0].trim()
+
+const isSupportedImage = (url) => {
+  const lower = url.toLowerCase()
+  return /\.(png|jpe?g)$/i.test(lower)
 }
 
 const buildPublicUrl = (key) =>
@@ -104,23 +118,19 @@ const toAvifKey = (rawKey) => {
 
 const headObjectExists = async (key) => {
   try {
-    await s3.send(
-      new HeadObjectCommand({ Bucket: R2_BUCKET, Key: key })
-    )
+    await s3.send(new HeadObjectCommand({ Bucket: R2_BUCKET, Key: key }))
     return true
-  } catch (error) {
-    if (error?.$metadata?.httpStatusCode === 404 || error?.name === "NotFound") {
+  } catch (err) {
+    if (err?.$metadata?.httpStatusCode === 404 || err?.name === "NotFound") {
       return false
     }
-    throw error
+    throw err
   }
 }
 
 const streamToBuffer = async (stream) => {
   const chunks = []
-  for await (const chunk of stream) {
-    chunks.push(chunk)
-  }
+  for await (const chunk of stream) chunks.push(chunk)
   return Buffer.concat(chunks)
 }
 
@@ -146,30 +156,64 @@ const uploadOptimized = async (key, body, contentType) => {
   )
 }
 
-const deleteRawFile = async (key) => {
+const removeRawFile = async (key) => {
   await s3.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key }))
 }
 
-const processImage = async ({ product, originalUrl, isThumbnail }) => {
-  const normalizedUrl = normalizeUrl(originalUrl)
-  if (!normalizedUrl.startsWith(`${publicBaseUrl}/${rawPrefix}`)) {
-    return { skipped: true, reason: "not raw prefix" }
+//
+// MEDUSA CALLBACK
+//
+
+const callCallback = async (payload) => {
+  const response = await fetch(MEDUSA_CALLBACK_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Image-Conversion-Token": IMAGE_CONVERSION_TOKEN,
+    },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Callback failed: ${response.status} ${text}`)
   }
-  if (!isSupportedImage(normalizedUrl)) {
-    return { skipped: true, reason: "unsupported extension" }
+  return response.json()
+}
+
+//
+// Dispatch Payload Reader
+//
+
+const readDispatchPayload = async () => {
+  if (!process.env.GITHUB_EVENT_PATH) return null
+  if (process.env.GITHUB_EVENT_NAME !== "repository_dispatch") return null
+  const data = await fs.readFile(process.env.GITHUB_EVENT_PATH, "utf-8")
+  const obj = JSON.parse(data)
+  return obj?.client_payload || null
+}
+
+//
+// PROCESSING
+//
+
+const processImage = async ({ product, originalUrl, isThumbnail }) => {
+  const normalized = normalizeUrl(originalUrl)
+
+  if (!normalized.startsWith(`${publicBaseUrl}/${rawPrefix}`)) {
+    return { skipped: true }
+  }
+  if (!isSupportedImage(normalized)) {
+    return { skipped: true }
   }
 
-  const rawKey = keyFromUrl(normalizedUrl)
+  const rawKey = keyFromUrl(normalized)
   const webpKey = toWebpKey(rawKey)
   const avifKey = toAvifKey(rawKey)
-
   const optimizedUrl = buildPublicUrl(avifKey)
 
   const already = await headObjectExists(avifKey)
   if (!already) {
-    const rawObj = await s3.send(
-      new GetObjectCommand({ Bucket: R2_BUCKET, Key: rawKey })
-    )
+    const rawObj = await s3.send(new GetObjectCommand({ Bucket: R2_BUCKET, Key: rawKey }))
     const buffer = await streamToBuffer(rawObj.Body)
     const { avifBuffer, webpBuffer } = await convertImageBuffers(buffer)
 
@@ -186,42 +230,44 @@ const processImage = async ({ product, originalUrl, isThumbnail }) => {
 
   if (DELETE_RAW_AFTER_CONVERSION) {
     try {
-      await deleteRawFile(rawKey)
-    } catch (error) {
-      console.error(`Failed to delete raw file ${rawKey}:`, error)
-    }
+      await removeRawFile(rawKey)
+    } catch {}
   }
 
-  return { skipped: false, optimizedUrl }
+  return { skipped: false }
 }
 
 const processProductImages = async ({ productId, urls, thumbnail }) => {
-  let processed = 0
+  let count = 0
   for (const url of urls) {
-    if (processed >= MAX_TASKS) break
+    if (count >= MAX_TASKS) break
     const isThumb = normalizeUrl(url) === normalizeUrl(thumbnail || "")
     try {
       const result = await processImage({
-        product: { id: productId, thumbnail },
+        product: { id: productId },
         originalUrl: url,
         isThumbnail: isThumb,
       })
-      if (!result.skipped) processed++
-    } catch (error) {
-      console.error(`Error processing ${url}`, error)
+      if (!result.skipped) count++
+    } catch (err) {
+      console.error(`Error converting ${url}`, err)
     }
   }
-  return processed
+  return count
 }
 
+//
+// MAIN
+//
+
 const main = async () => {
-  const dispatchPayload = await readDispatchPayload()
-  if (dispatchPayload?.product_id && Array.isArray(dispatchPayload.images)) {
-    const urls = dispatchPayload.images.filter((u) => typeof u === "string")
+  const dispatch = await readDispatchPayload()
+
+  if (dispatch?.product_id && Array.isArray(dispatch.images)) {
     await processProductImages({
-      productId: dispatchPayload.product_id,
-      urls,
-      thumbnail: dispatchPayload.thumbnail,
+      productId: dispatch.product_id,
+      urls: dispatch.images.filter((u) => typeof u === "string"),
+      thumbnail: dispatch.thumbnail,
     })
     return
   }
@@ -230,15 +276,22 @@ const main = async () => {
 
   let offset = 0
   for (let page = 0; page < MAX_PAGES; page++) {
-    const { products } = await fetchPendingProducts(offset)
+    const response = await fetch(
+      new URL(MEDUSA_PENDING_URL + `?limit=${PENDING_LIMIT}&offset=${offset}`)
+    )
+    if (!response.ok) break
+
+    const { products } = await response.json()
     if (!products?.length) break
+
     for (const product of products) {
-      const urls = new Set()
-      ;(product.images || []).forEach((img) => img?.url && urls.add(img.url))
-      if (product.thumbnail) urls.add(product.thumbnail)
+      const candidates = new Set()
+      ;(product.images || []).forEach((img) => img?.url && candidates.add(img.url))
+      if (product.thumbnail) candidates.add(product.thumbnail)
+
       await processProductImages({
         productId: product.id,
-        urls: Array.from(urls),
+        urls: Array.from(candidates),
         thumbnail: product.thumbnail,
       })
     }
@@ -250,12 +303,3 @@ main().catch((err) => {
   console.error(err)
   process.exit(1)
 })
-
-function normalizePrefix(value) {
-  const trimmed = value.trim().replace(/^\/+/, "")
-  return trimmed.endsWith("/") ? trimmed : `${trimmed}/`
-}
-
-function normalizeBaseUrl(value) {
-  return value.trim().replace(/\/+$/, "")
-}
