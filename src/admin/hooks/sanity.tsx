@@ -2,16 +2,27 @@ import {
   useMutation, 
   UseMutationOptions, 
   useQueryClient, 
-  QueryKey, 
   useQuery, 
-  UseQueryOptions,
 } from "@tanstack/react-query"
 import { sdk } from "../lib/sdk"
-import { FetchError } from "@medusajs/js-sdk"
 
+// --- TYPES & INTERFACES ---
 
-export const useTriggerSanityProductSync = (
+interface SanityDocumentResponse {
+  sanity_document: Record<string, any> | null
+  studio_url: string | null
+}
+
+interface SanitySyncResponse {
+  workflow_executions: any[]
+  count: number
+}
+
+// --- TARGETED SYNC HOOKS ---
+
+const useTriggerDocumentSync = (
   id: string,
+  type: "product" | "category" | "collection" | "type",
   options?: UseMutationOptions
 ) => {
   const queryClient = useQueryClient()
@@ -20,49 +31,56 @@ export const useTriggerSanityProductSync = (
     mutationFn: () =>
       sdk.client.fetch(`/admin/sanity/documents/${id}/sync`, {
         method: "post",
+        query: { type } 
       }),
     onSuccess: (data: any, variables: any, context: any) => {
+      console.log(data)
       queryClient.invalidateQueries({
-        queryKey: [`sanity_document`, `sanity_document_${id}`],
+        queryKey: ["sanity_document", id],
       })
-
       options?.onSuccess?.(data, variables, context)
     },
     ...options,
   })
 }
 
-export const useSanityDocument = (
-  id: string,
-  query?: Record<any, any>,
-  options?: Omit<
-    UseQueryOptions<
-      Record<any, any>,
-      FetchError,
-      { sanity_document: Record<any, any>; studio_url: string },
-      QueryKey
-    >,
-    "queryKey" | "queryFn"
-  >
-) => {
-  const fetchSanityProductStatus = async (query?: Record<any, any>) => {
-    return await sdk.client.fetch<Record<any, any>>(
-      `/admin/sanity/documents/${id}`,
-      {
-        query,
-      }
-    )
-  }
+export const useTriggerSanityProductSync = (id: string, options?: UseMutationOptions) => 
+  useTriggerDocumentSync(id, "product", options)
 
-  const { data, ...rest } = useQuery({
-    queryFn: async () => fetchSanityProductStatus(query),
-    queryKey: [`sanity_document_${id}`],
-    ...options,
+export const useTriggerSanityCategorySync = (id: string, options?: UseMutationOptions) => 
+  useTriggerDocumentSync(id, "category", options)
+
+export const useTriggerSanityCollectionSync = (id: string, options?: UseMutationOptions) => 
+  useTriggerDocumentSync(id, "collection", options)
+
+export const useTriggerSanityTypeSync = (id: string, options?: UseMutationOptions) => 
+  useTriggerDocumentSync(id, "type", options)
+
+
+// --- DATA FETCHING HOOKS ---
+
+/**
+ * Fetches status of a specific document in Sanity
+ */
+export const useSanityDocument = (id: string, query?: Record<string, any>) => {
+  const { data, ...rest } = useQuery<SanityDocumentResponse>({
+    queryFn: async () => sdk.client.fetch<SanityDocumentResponse>(`/admin/sanity/documents/${id}`, { query }),
+    queryKey: ["sanity_document", id],
+    enabled: !!id,
+    retry: false,
+    refetchOnWindowFocus: true,
   })
 
-  return { ...data, ...rest }
+  return { 
+    sanity_document: data?.sanity_document, 
+    studio_url: data?.studio_url, 
+    ...rest 
+  }
 }
 
+/**
+ * Triggers a full bulk sync (Used in Sanity Dashboard)
+ */
 export const useTriggerSanitySync = (options?: UseMutationOptions) => {
   const queryClient = useQueryClient()
 
@@ -72,39 +90,30 @@ export const useTriggerSanitySync = (options?: UseMutationOptions) => {
         method: "post",
       }),
     onSuccess: (data: any, variables: any, context: any) => {
-      queryClient.invalidateQueries({
-        queryKey: [`sanity_sync`],
-      })
-
+      queryClient.invalidateQueries({ queryKey: ["sanity_sync"] })
       options?.onSuccess?.(data, variables, context)
     },
     ...options,
   })
 }
 
+/**
+ * Fetches sync history (Used in Sanity Dashboard)
+ * Fixed: Explicit typing resolves ts(2339)
+ */
 export const useSanitySyncs = (
-  query?: Record<any, any>,
-  options?: Omit<
-    UseQueryOptions<
-      Record<any, any>,
-      FetchError,
-      { workflow_executions: Record<any, any>[] },
-      QueryKey
-    >,
-    "queryKey" | "queryFn"
-  >
+  query?: Record<string, any>,
+  options?: any
 ) => {
-  const fetchSanitySyncs = async (query?: Record<any, any>) => {
-    return await sdk.client.fetch<Record<any, any>>(`/admin/sanity/syncs`, {
-      query,
-    })
-  }
-
-  const { data, ...rest } = useQuery({
-    queryFn: async () => fetchSanitySyncs(query),
-    queryKey: [`sanity_sync`],
+  const { data, ...rest } = useQuery<SanitySyncResponse>({
+    queryFn: async () => sdk.client.fetch<SanitySyncResponse>(`/admin/sanity/syncs`, { query }),
+    queryKey: ["sanity_sync"],
     ...options,
   })
 
-  return { ...data, ...rest }
+  return { 
+    workflow_executions: data?.workflow_executions || [], 
+    count: data?.count || 0, 
+    ...rest 
+  }
 }

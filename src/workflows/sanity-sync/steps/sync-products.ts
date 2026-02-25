@@ -15,7 +15,7 @@ type UpsertRecord = {
   after: { _id: string } | null
 }
 
-export const syncStep = createStep(
+export const syncProductsStep = createStep(
   "sync-step",
   async (input: SyncStepInput, { container }) => {
     const sanityModule: SanityModuleService = container.resolve(SANITY_MODULE)
@@ -44,6 +44,7 @@ export const syncStep = createStep(
             "thumbnail",
             "images.id",
             "images.url",
+            "type.*", // FIXED: Added .* to expand the relation
           ],
           filters,
           pagination: {
@@ -60,7 +61,6 @@ export const syncStep = createStep(
 
         await promiseAll(
           products.map(async (prod: any) => {
-            // Get existing to preserve content
             const existing = await sanityModule.retrieve(prod.id).catch(() => null)
 
             const sanityPayload: any = {
@@ -69,8 +69,8 @@ export const syncStep = createStep(
               medusaId: prod.id,
               title: prod.title,
               handle: prod.handle,
-              
-              // Sync R2 images
+              // FIXED: Accessing the value from the expanded type relation
+              medusaType: prod.type?.value || null, 
               thumbnailR2: prod.thumbnail ? { url: prod.thumbnail } : null,
               galleryR2: prod.images?.map((img: any) => ({
                 _key: img.id,
@@ -78,7 +78,6 @@ export const syncStep = createStep(
               })) || [],
             }
             
-            // Preserve content
             if (existing) {
               if (existing.shortDescription) sanityPayload.shortDescription = existing.shortDescription
               if (existing.richDescription) sanityPayload.richDescription = existing.richDescription
@@ -86,7 +85,6 @@ export const syncStep = createStep(
               if (existing.specifications) sanityPayload.specifications = existing.specifications
               if (existing.extraSections) sanityPayload.extraSections = existing.extraSections
               
-              // Preserve product relations
               if (existing.relatedProducts) sanityPayload.relatedProducts = existing.relatedProducts
               if (existing.upsellProducts) sanityPayload.upsellProducts = existing.upsellProducts
               if (existing.crosssellProducts) sanityPayload.crosssellProducts = existing.crosssellProducts

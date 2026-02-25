@@ -1,8 +1,8 @@
 {
-  "name": "fashion-starter-medusa",
-  "version": "2.0.0",
-  "description": "A starter for Medusa projects.",
-  "author": "Medusa (https://medusajs.com)",
+  "name": "arohahouse",
+  "version": "2.13.1",
+  "description": "A luxury home decor e-commerce backend for Aroha House. Built with Medusa v2, Sanity CMS, and custom modular architecture for premium artisanal furniture and decor.",
+  "author": "Subhrajit Bjowmik",
   "license": "MIT",
   "keywords": [
     "sqlite",
@@ -10,7 +10,8 @@
     "typescript",
     "ecommerce",
     "headless",
-    "medusa"
+    "medusa",
+    "aroha"
   ],
   "scripts": {
     "build": "medusa build",
@@ -44,6 +45,7 @@
     "@tsc_tech/medusa-plugin-product-variant-images": "^0.0.2",
     "algoliasearch": "^5.44.0",
     "awilix": "^8.0.1",
+    "axios": "^1.13.5",
     "ioredis": "^5.4.0",
     "lodash": "^4.17.21",
     "meilisearch": "0.47.0",

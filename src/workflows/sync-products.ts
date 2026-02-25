@@ -4,7 +4,11 @@ import {
   transform 
 } from "@medusajs/framework/workflows-sdk"
 import { useQueryGraphStep } from "@medusajs/medusa/core-flows"
-import { syncProductsStep, SyncProductsStepInput } from "./steps/sync-products"
+
+import { syncProductsStep } from "./sanity-sync/steps/sync-products"
+import { syncCategoriesStep } from "./sanity-sync/steps/sync-categories"
+import { syncCollectionsStep } from "./sanity-sync/steps/sync-collections"
+import { syncProductTypesStep } from "./sanity-sync/steps/sync-product-types"
 
 type SyncProductsWorkflowInput = {
   filters?: Record<string, unknown>
@@ -13,30 +17,26 @@ type SyncProductsWorkflowInput = {
 }
 
 export const syncProductsWorkflow = createWorkflow(
-  "sync-products-to-meilisearch",
+  "sync-products-to-sanity",
   ({ filters = {}, limit = 50, offset = 0 }: SyncProductsWorkflowInput) => {
-    // Query products with all required fields
+
     const { data: products, metadata } = useQueryGraphStep({
       entity: "product",
       fields: [
         "id",
         "title",
-        "subtitle",
-        "description",
         "handle",
         "thumbnail",
-        "is_giftcard",
         "status",
-        // Collection fields
-        "collection.*",
-        // Categories with nested fields
-        "categories.*",
-        // Tags
-        "tags.*",
-        // Type
-        "type.*",
-        // Variants with nested fields
-        "variants.*",
+        "collection.id",
+        "collection.title",
+        "collection.handle",
+        "categories.id",
+        "categories.name",
+        "categories.handle",
+        "categories.parent_category_id", // CRITICAL FOR HIERARCHY
+        "type.id",
+        "type.value",
       ],
       filters: {
         status: ["published", "proposed"],
@@ -48,68 +48,73 @@ export const syncProductsWorkflow = createWorkflow(
       },
     })
 
-    // Transform the data to match the expected input shape
-    const transformedProducts = transform(
+    const syncData = transform(
       { products },
       ({ products }) => {
-        return products.map((product: any) => ({
-          id: product.id,
-          title: product.title || "",
-          subtitle: product.subtitle || "",
-          description: product.description || "",
-          handle: product.handle || "",
-          thumbnail: product.thumbnail || null,
-          is_giftcard: product.is_giftcard || false,
-          status: product.status || "draft",
-          collection: product.collection
-            ? {
-                id: product.collection.id,
-                title: product.collection.title,
-                handle: product.collection.handle,
-              }
-            : null,
-          categories: Array.isArray(product.categories)
-            ? product.categories.map((cat: any) => ({
-                id: cat.id,
-                name: cat.name,
+        const seenTypeIds = new Set()
+        const seenCollectionIds = new Set()
+        const seenCategoryIds = new Set()
+
+        const types: any[] = []
+        const collections: any[] = []
+        const categories: any[] = []
+
+        products.forEach((product: any) => {
+          if (product.type && !seenTypeIds.has(product.type.id)) {
+            seenTypeIds.add(product.type.id)
+            types.push({ id: product.type.id, value: product.type.value })
+          }
+
+          if (product.collection && !seenCollectionIds.has(product.collection.id)) {
+            seenCollectionIds.add(product.collection.id)
+            collections.push({
+              id: product.collection.id,
+              title: product.collection.title,
+              handle: product.collection.handle,
+            })
+          }
+
+          product.categories?.forEach((cat: any) => {
+            if (!seenCategoryIds.has(cat.id)) {
+              seenCategoryIds.add(cat.id)
+              categories.push({ 
+                id: cat.id, 
+                name: cat.name, 
                 handle: cat.handle,
-              }))
-            : [],
-          tags: Array.isArray(product.tags)
-            ? product.tags.map((tag: any) => ({
-                id: tag.id,
-                value: tag.value,
-              }))
-            : [],
-          type: product.type
-            ? {
-                id: product.type.id,
-                value: product.type.value,
-              }
-            : null,
-          variants: Array.isArray(product.variants)
-            ? product.variants.map((variant: any) => ({
-                id: variant.id,
-                title: variant.title,
-                sku: variant.sku || null,
-                barcode: variant.barcode || null,
-                ean: variant.ean || null,
-                inventory_quantity: variant.inventory_quantity || 0,
-              }))
-            : [],
-        }))
+                parent_id: cat.parent_category_id 
+              })
+            }
+          })
+        })
+
+        return {
+          products: products.map(p => ({ id: p.id })),
+          types,
+          collections,
+          categories
+        }
       }
     )
 
-    // Sync to Meilisearch
-    const result = syncProductsStep({
-      products: transformedProducts,
-    })
+    const typeIds = transform({ syncData }, (data) => data.syncData.types.map(t => t.id))
+    const collectionIds = transform({ syncData }, (data) => data.syncData.collections.map(c => c.id))
+    const categoryIds = transform({ syncData }, (data) => data.syncData.categories.map(c => c.id))
+    const productIds = transform({ syncData }, (data) => data.syncData.products.map(p => p.id))
+
+    const typesSyncResult = syncProductTypesStep({ type_ids: typeIds })
+    const collectionsSyncResult = syncCollectionsStep({ collection_ids: collectionIds })
+    const categoriesSyncResult = syncCategoriesStep({ category_ids: categoryIds })
+    const productsSyncResult = syncProductsStep({ product_ids: productIds })
 
     return new WorkflowResponse({
-      products: transformedProducts,
+      products: syncData.products,
       metadata,
-      syncResult: result,
+      syncResults: {
+        products: productsSyncResult,
+        types: typesSyncResult,
+        collections: collectionsSyncResult,
+        categories: categoriesSyncResult,
+      },
     })
   }
 )

@@ -9,6 +9,10 @@ import {
 
 const SyncDocumentTypes = {
     PRODUCT: "product",
+    PRODUCT_TYPE: "productType",
+    COLLECTION: "collection",
+    CATEGORY: "category",
+
 } as const
 
 type SyncDocumentTypes =
@@ -42,14 +46,7 @@ class SanityModuleService {
     }: InjectedDependencies, options: ModuleOptions) {
         this.logger = logger
 
-        // --- DEBUG LOGS ---
-        this.logger.info("--- Sanity Module Initialization ---")
-        this.logger.info(`Project ID: ${options.project_id}`)
-        this.logger.info(`Dataset: ${options.dataset}`)
-        this.logger.info(`Token Present: ${!!options.api_token}`)
-        if (options.api_token) {
-            this.logger.info(`Token starts with: ${options.api_token.substring(0, 5)}...`)
-        }
+
         // -------------------
 
         this.client = createClient({
@@ -57,7 +54,7 @@ class SanityModuleService {
             apiVersion: options.api_version || "2023-01-01",
             dataset: options.dataset,
             token: options.api_token,
-            useCdn: false, 
+            useCdn: false,
         })
 
         this.logger.info("Sanity Client instance created")
@@ -67,6 +64,10 @@ class SanityModuleService {
             {},
             {
                 [SyncDocumentTypes.PRODUCT]: "product",
+                [SyncDocumentTypes.PRODUCT_TYPE]: "productType",
+                [SyncDocumentTypes.COLLECTION]: "collection",
+                [SyncDocumentTypes.CATEGORY]: "category",
+
             },
             options.type_map || {}
         )
@@ -74,14 +75,14 @@ class SanityModuleService {
 
     // --- MAIN LOGIC: PASSTHROUGH ---
     // We assume the Workflow Step has already formatted the data correctly.
-    
+
     async upsertSyncDocument(
         type: SyncDocumentTypes,
         data: SyncDocumentInputs
     ) {
         // Use _id if present (from our workflow), otherwise fall back to id
         const docId = data._id || data.id;
-        
+
         const existing = await this.client.getDocument(docId)
         if (existing) {
             return await this.updateSyncDocument(type, data)
@@ -98,9 +99,9 @@ class SanityModuleService {
         // Ensure _type is set
         const doc = {
             ...data,
-            _type: this.typeMap[type], 
+            _type: this.typeMap[type],
             // Ensure _id is set (Sanity needs this to link back to Medusa)
-            _id: data._id || data.id 
+            _id: data._id || data.id
         }
         return await this.client.create(doc, options)
     }
@@ -110,7 +111,7 @@ class SanityModuleService {
         data: SyncDocumentInputs
     ) {
         const docId = data._id || data.id;
-        
+
         // Remove sensitive fields we shouldn't overwrite like _id or _type in a patch
         const { _id, _type, id, medusaId, ...updateData } = data;
 

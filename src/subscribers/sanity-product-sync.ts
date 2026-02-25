@@ -4,32 +4,56 @@ import type {
 } from "@medusajs/framework"
 import { 
   sanitySyncProductsWorkflow,
-} from "../workflows/sanity-sync-products"
+  sanitySyncCategoriesWorkflow,
+  sanitySyncCollectionsWorkflow,
+  sanitySyncTypesWorkflow
+} from "../workflows/sanity-sync"
 import { SANITY_MODULE } from "../modules/sanity"
 import SanityModuleService from "../modules/sanity/service"
 
-export default async function productSyncHandler({
+export default async function sanitySyncHandler({
   event: { name, data },
   container,
 }: SubscriberArgs<{ id: string }>) {
   
-  // CASE 1: Handle DELETE
-  if (name === "product.deleted") {
-    const sanityModule: SanityModuleService = container.resolve(SANITY_MODULE)
+  const sanityModule: SanityModuleService = container.resolve(SANITY_MODULE)
+
+  // 1️⃣ HANDLE DELETIONS
+  if (name.endsWith(".deleted")) {
     await sanityModule.delete(data.id)
     return
   }
 
-  // CASE 2: Handle CREATE / UPDATE
-  // Trigger the workflow to fetch data and upsert to Sanity
-  await sanitySyncProductsWorkflow(container).run({
-    input: {
-      product_ids: [data.id],
-    },
-  })
+  // 2️⃣ HANDLE CREATE / UPDATE (Dispatch to specific workflows)
+  // We use the event name to decide which workflow to run
+  if (name.startsWith("product.")) {
+    await sanitySyncProductsWorkflow(container).run({
+      input: { product_ids: [data.id] },
+    })
+  } 
+  
+  else if (name.startsWith("product-category.")) {
+    await sanitySyncCategoriesWorkflow(container).run({})
+  } 
+  
+  else if (name.startsWith("product-collection.")) {
+    await sanitySyncCollectionsWorkflow(container).run({})
+  } 
+  
+  else if (name.startsWith("product-type.")) {
+    await sanitySyncTypesWorkflow(container).run({})
+  }
 }
 
 export const config: SubscriberConfig = {
-  // Listen to ALL three events
-  event: ["product.created", "product.updated", "product.deleted"],
+  event: [
+    // Product Events
+    "product.created", "product.updated", "product.deleted",
+    // Category Events
+    "product-category.created", "product-category.updated", "product-category.deleted",
+    // Collection Events
+    "product-collection.created", "product-collection.updated", "product-collection.deleted",
+    // Type Events
+    "product-type.created", "product-type.updated", "product-type.deleted"
+  ],
 }
