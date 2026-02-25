@@ -49,10 +49,18 @@ const MAX_PAGES = Number(process.env.MAX_PAGES || 5)
 const MAX_WIDTH = Number(process.env.MAX_WIDTH || 2000)
 const DELETE_RAW_AFTER_CONVERSION = String(process.env.DELETE_RAW_AFTER_CONVERSION ?? "true") !== "false"
 
+//
+// HELPERS (Defined before use)
+//
 
-//
-// R2 CLIENT
-//
+function normalizePrefix(value) {
+  const t = value.trim().replace(/^\/+/, "")
+  return t.endsWith("/") ? t : `${t}/`
+}
+
+function normalizeBaseUrl(value) {
+  return value.trim().replace(/\/+$/, "")
+}
 
 const rawPrefix = normalizePrefix(R2_RAW_PREFIX)
 const webpPrefix = normalizePrefix(R2_WEBP_PREFIX)
@@ -67,20 +75,6 @@ const s3 = new S3Client({
   },
   forcePathStyle: true,
 })
-
-
-//
-// HELPERS
-//
-
-function normalizePrefix(value) {
-  const t = value.trim().replace(/^\/+/, "")
-  return t.endsWith("/") ? t : `${t}/`
-}
-
-function normalizeBaseUrl(value) {
-  return value.trim().replace(/\/+$/, "")
-}
 
 const normalizeUrl = (value) => value.split(/[?#]/)[0].trim()
 
@@ -160,10 +154,6 @@ const removeRawFile = async (key) => {
   await s3.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key }))
 }
 
-//
-// MEDUSA CALLBACK
-//
-
 const callCallback = async (payload) => {
   const response = await fetch(MEDUSA_CALLBACK_URL, {
     method: "POST",
@@ -180,21 +170,18 @@ const callCallback = async (payload) => {
   return response.json()
 }
 
-//
-// Dispatch Payload Reader
-//
-
 const readDispatchPayload = async () => {
   if (!process.env.GITHUB_EVENT_PATH) return null
   if (process.env.GITHUB_EVENT_NAME !== "repository_dispatch") return null
-  const data = await fs.readFile(process.env.GITHUB_EVENT_PATH, "utf-8")
-  const obj = JSON.parse(data)
-  return obj?.client_payload || null
+  try {
+    const data = await fs.readFile(process.env.GITHUB_EVENT_PATH, "utf-8")
+    const obj = JSON.parse(data)
+    return obj?.client_payload || null
+  } catch (err) {
+    console.warn("⚠️ Could not read GITHUB_EVENT_PATH")
+    return null
+  }
 }
-
-//
-// PROCESSING
-//
 
 const processImage = async ({ product, originalUrl, isThumbnail }) => {
   const normalized = normalizeUrl(originalUrl)
@@ -264,6 +251,7 @@ const main = async () => {
   const dispatch = await readDispatchPayload()
 
   if (dispatch?.product_id && Array.isArray(dispatch.images)) {
+    console.log(`Processing via dispatch for product: ${dispatch.product_id}`)
     await processProductImages({
       productId: dispatch.product_id,
       urls: dispatch.images.filter((u) => typeof u === "string"),
@@ -272,8 +260,12 @@ const main = async () => {
     return
   }
 
-  if (!MEDUSA_PENDING_URL) return
+  if (!MEDUSA_PENDING_URL) {
+    console.log("No pending URL provided, and no dispatch payload found. Exiting.")
+    return
+  }
 
+  console.log("Polling Medusa for pending images...")
   let offset = 0
   for (let page = 0; page < MAX_PAGES; page++) {
     const response = await fetch(
@@ -300,6 +292,6 @@ const main = async () => {
 }
 
 main().catch((err) => {
-  console.error(err)
+  console.error("FATAL ERROR:", err)
   process.exit(1)
 })
