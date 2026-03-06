@@ -18,8 +18,7 @@ jobs:
     runs-on: ubuntu-latest
 
     container:
-      image: ghcr.io/${{ github.repository }}/image-conversion:latest
-
+        image: ghcr.io/${{ github.repository }}/image-conversion:latest
     steps:
       - uses: actions/checkout@v4
 
