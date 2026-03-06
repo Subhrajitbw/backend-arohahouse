@@ -1,57 +1,40 @@
 import { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 
+export const AUTHENTICATE = false   // IMPORTANT
+
 const TOKEN_HEADER = "x-image-conversion-token"
 
-const getHeaderValue = (value: string | string[] | undefined) => {
-  if (!value) {
-    return undefined
-  }
-  return Array.isArray(value) ? value[0] : value
-}
+export async function GET(req: MedusaRequest, res: MedusaResponse) {
+  console.log("ROUTE HIT")
 
-export async function GET(
-  req: MedusaRequest,
-  res: MedusaResponse
-): Promise<void> {
+  const logger = req.scope.resolve(ContainerRegistrationKeys.LOGGER)
+  logger.info("Image conversion route started")
+
   const expectedToken = process.env.IMAGE_CONVERSION_TOKEN
+  const providedToken = req.headers[TOKEN_HEADER]
+
+  logger.info("Expected token exists: " + Boolean(expectedToken))
+  logger.info("Provided token: " + providedToken)
+
   if (!expectedToken) {
-    res.status(500).json({
-      error: "IMAGE_CONVERSION_TOKEN is not configured",
-    })
-    return
+    logger.error("IMAGE_CONVERSION_TOKEN missing")
+    return res.status(500).json({ error: "Token not configured" })
   }
 
-  const providedToken = getHeaderValue(req.headers[TOKEN_HEADER])
-  if (!providedToken || providedToken !== expectedToken) {
-    res.status(401).json({ error: "Unauthorized" })
-    return
+  if (providedToken !== expectedToken) {
+    logger.warn("Unauthorized request")
+    return res.status(401).json({ error: "Unauthorized" })
   }
-
-  const limit = Math.min(Number(req.query.limit) || 50, 200)
-  const offset = Number(req.query.offset) || 0
-  const updatedAtGte = req.query.updated_at_gte as string | undefined
 
   const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
-  const filters = updatedAtGte ? { updated_at: { $gte: updatedAtGte } } : {}
 
-  const { data: products, metadata } = await query.graph({
+  const { data: products } = await query.graph({
     entity: "product",
-    fields: ["id", "thumbnail", "images.*", "updated_at"],
-    filters,
-    pagination: {
-      skip: offset,
-      take: limit,
-      order: {
-        updated_at: "DESC",
-      },
-    },
+    fields: ["id", "thumbnail", "images.*"],
   })
 
-  res.status(200).json({
-    products,
-    limit,
-    offset,
-    count: metadata?.count,
-  })
+  logger.info(`Products fetched: ${products.length}`)
+
+  res.json({ products })
 }

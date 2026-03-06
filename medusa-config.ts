@@ -35,14 +35,12 @@ export default defineConfig({
       jwtSecret: process.env.JWT_SECRET || "supersecret",
       cookieSecret: process.env.COOKIE_SECRET || "supersecret",
     },
-    cookieOptions:
-    process.env.NODE_ENV === "development"
-      ? {
+    cookieOptions:{
           secure: false,     // allow cookies over HTTP
           sameSite: "lax",   // relaxed sending in local dev
           httpOnly: true,
-        }
-      : {},                 // production uses Medusa defaults
+              
+    }// production uses Medusa defaults
   },
 
   modules: [
