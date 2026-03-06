@@ -3,8 +3,10 @@ name: Convert Raw Images
 on:
   repository_dispatch:
     types: [image_conversion]
+
   schedule:
     - cron: "*/5 * * * *"
+
   workflow_dispatch:
 
 concurrency:
@@ -16,12 +18,9 @@ jobs:
     runs-on: ubuntu-latest
 
     container:
-      image: ghcr.io/${{ env.REPO_LC }}/image-conversion:latest
+      image: ghcr.io/subhrajitbw/backend-arohahouse/image-conversion:latest
 
     steps:
-      - name: Set lowercase repo slug
-        run: echo "REPO_LC=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
-
       - uses: actions/checkout@v4
 
       - name: Convert images
@@ -36,4 +35,5 @@ jobs:
           MEDUSA_PENDING_URL: ${{ secrets.MEDUSA_PENDING_URL }}
           MEDUSA_CALLBACK_URL: ${{ secrets.MEDUSA_CALLBACK_URL }}
           IMAGE_CONVERSION_TOKEN: ${{ secrets.IMAGE_CONVERSION_TOKEN }}
+
         run: node /app/convert-r2-images.mjs
