@@ -1,50 +1,46 @@
-name: Deploy Medusa Backend to EC2
-
+name: Deploy Aroha House Backend
 on:
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      # 1) Checkout repo
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2) Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "yarn"
 
-      # 3) Enable Corepack -> uses yarn@4.7.0 from packageManager
       - name: Enable Corepack (Yarn Berry)
         run: corepack enable
 
-      # 4) Install dependencies with Yarn 4
-      - name: Install dependencies
-        run: yarn install --immutable
-
-      # 5) Build Medusa app (backend + admin)
-      - name: Build Medusa app
-        run: yarn build
+      - name: Build Project (on GitHub)
+        run: |
+          # Install all dependencies including dev ones for the build
+          yarn install --immutable
+          # This generates the .medusa/server directory
+          yarn build
         env:
           NODE_ENV: production
 
-      # 6) Package built artifacts (include src + TS config + tsconfig)
-      - name: Create build bundle
+      - name: Prepare Production Bundle
         run: |
-          tar -czf build.tar.gz \
-            .medusa \
-            src \
-            package.json \
-            yarn.lock \
-            medusa-config.ts \
-            tsconfig.json \
-            .yarnrc.yml
+          # 1. Copy necessary files into the server folder for a standalone app
+          cp package.json .medusa/server/package.json
+          cp yarn.lock .medusa/server/yarn.lock
+          cp .yarnrc.yml .medusa/server/.yarnrc.yml
 
-      # 7) Copy bundle to EC2
+          # 2. Prune dev-dependencies so the EC2 doesn't have to carry weight
+          cd .medusa/server
+          yarn workspaces focus --production
+
+          # 3. Bundle the contents of .medusa/server into a single archive
+          tar -czf ../../build.tar.gz .
+
       - name: Copy bundle to EC2
         uses: appleboy/scp-action@master
         with:
@@ -54,7 +50,6 @@ jobs:
           source: "build.tar.gz"
           target: "/var/www/medusa"
 
-      # 8) Deploy on EC2
       - name: Deploy on EC2
         uses: appleboy/ssh-action@master
         with:
@@ -63,60 +58,25 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
-
             cd /var/www/medusa
 
-            # Clean old configs / src so nothing stale sticks around
-            rm -f medusa-config.js medusa-config.cjs medusa-config.mjs
-            rm -rf src
+            # Extract the ready-to-run bundle (overwrites old files)
+            tar -xzf build.tar.gz
+            rm build.tar.gz
 
-            # Extract new build
-            if [ -f build.tar.gz ]; then
-              tar -xzf build.tar.gz
-              rm build.tar.gz
-            fi
+            # Inject production environment variables from Secret
+            echo "${{ secrets.PROD_ENV_FILE }}" > .env.production
 
-            # Write environment file from secret into root
-            cat << 'EOF' > .env.production
-            ${{ secrets.PROD_ENV_FILE }}
-            EOF
+            # Run DB migrations (Low overhead task)
+            npx medusa db:migrate
 
-            # If a global Yarn 1 exists, remove it so Corepack can control yarn
-            if command -v yarn >/dev/null 2>&1; then
-              YVER=$(yarn -v || echo "0")
-              case "$YVER" in
-                1.*)
-                  echo "Removing global Yarn 1.x so Corepack can take over..."
-                  sudo rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg || true
-                  ;;
-              esac
-            fi
-
-            # Enable Corepack on EC2 (Yarn 4)
-            corepack enable
-
-            # Install deps in project root (ts-node, tsconfig-paths, medusa CLI)
-            yarn install --immutable
-
-            # Run DB migrations using Medusa CLI (uses medusa-config.ts + src/modules/*)
-            yarn medusa db:migrate --execute-safe-links
-
-            # Go into built server app
-            cd .medusa/server
-
-            # Copy env file into built server folder as well
-            cp /var/www/medusa/.env.production .env.production
-
-            # Install prod deps for built app
-            yarn install --immutable
-
-            # Start / reload with PM2 from .medusa/server
+            # Manage PM2 Process
+            # We use 'yarn start' which points to your 'medusa start' script
             if pm2 describe medusa >/dev/null 2>&1; then
-              echo "Reloading existing PM2 process 'medusa'"
+              echo "Reloading existing Medusa process..."
               pm2 reload medusa
             else
-              echo "Starting new PM2 process 'medusa'"
+              echo "Starting new Medusa process..."
               pm2 start yarn --name "medusa" -- start
             fi
-
             pm2 save

@@ -40,3 +40,4 @@ localhost+1-key.pem
 Caddyfile
 localhost+1.pem
 src/.DS_Store
+src/admin/lib/sdk.ts
