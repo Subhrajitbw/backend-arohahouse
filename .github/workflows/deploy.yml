@@ -60,7 +60,7 @@ jobs:
             cd /var/www/medusa
             tar -xzf build.tar.gz
             rm build.tar.gz
-            echo "${{ secrets.PROD_ENV_FILE }}" > .env.production
+            echo "${{ secrets.PROD_ENV_FILE }}" > .env
 
             # Since you enabled Corepack on EC2 already, this will work
             npx medusa db:migrate
