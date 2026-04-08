@@ -5,6 +5,10 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # This env variable opts into the new Node 24 runtime now
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -12,33 +16,34 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24" # Upgraded to 24 to match GitHub's 2026 standards
           cache: "yarn"
 
-      - name: Enable Corepack (Yarn Berry)
-        run: corepack enable
+      - name: Enable Corepack
+        # We run this BEFORE 'yarn install' to ensure Yarn 4.7.0 is used
+        run: |
+          corepack enable
+          corepack prepare yarn@4.7.0 --activate
 
       - name: Build Project (on GitHub)
         run: |
-          # Install all dependencies including dev ones for the build
           yarn install --immutable
-          # This generates the .medusa/server directory
           yarn build
         env:
           NODE_ENV: production
 
       - name: Prepare Production Bundle
         run: |
-          # 1. Copy necessary files into the server folder for a standalone app
+          # 1. Prepare standalone server folder
           cp package.json .medusa/server/package.json
           cp yarn.lock .medusa/server/yarn.lock
           cp .yarnrc.yml .medusa/server/.yarnrc.yml
 
-          # 2. Prune dev-dependencies so the EC2 doesn't have to carry weight
+          # 2. Prune dev-dependencies on GitHub
           cd .medusa/server
           yarn workspaces focus --production
 
-          # 3. Bundle the contents of .medusa/server into a single archive
+          # 3. Bundle the contents
           tar -czf ../../build.tar.gz .
 
       - name: Copy bundle to EC2
@@ -60,23 +65,20 @@ jobs:
             set -e
             cd /var/www/medusa
 
-            # Extract the ready-to-run bundle (overwrites old files)
+            # Extract build
             tar -xzf build.tar.gz
             rm build.tar.gz
 
-            # Inject production environment variables from Secret
+            # Inject production ENV
             echo "${{ secrets.PROD_ENV_FILE }}" > .env.production
 
-            # Run DB migrations (Low overhead task)
+            # Run migrations
             npx medusa db:migrate
 
-            # Manage PM2 Process
-            # We use 'yarn start' which points to your 'medusa start' script
+            # PM2 Management
             if pm2 describe medusa >/dev/null 2>&1; then
-              echo "Reloading existing Medusa process..."
               pm2 reload medusa
             else
-              echo "Starting new Medusa process..."
               pm2 start yarn --name "medusa" -- start
             fi
             pm2 save
