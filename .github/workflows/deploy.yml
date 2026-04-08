@@ -6,7 +6,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      # Forces GitHub to use the modern Node 24 runner to avoid deprecation warnings
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
@@ -17,16 +16,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
-          cache: "yarn"
+          # DO NOT use cache: 'yarn' here, it triggers the Yarn 1 error
 
       - name: Enable Corepack & Force Yarn 4.7.0
         run: |
-          # Enable corepack shims
           corepack enable
-          # Force the runner to download and use the specific Yarn version from your package.json
           corepack prepare yarn@4.7.0 --activate
-          # Verify the runner is now seeing the correct version
-          yarn --version
+          yarn --version # This should now output 4.7.0
 
       - name: Build Project (on GitHub)
         run: |
@@ -35,18 +31,13 @@ jobs:
         env:
           NODE_ENV: production
 
-      - name: Prepare Standalone Production Bundle
+      - name: Prepare Production Bundle
         run: |
-          # 1. Copy essential files for the standalone server
           cp package.json .medusa/server/package.json
           cp yarn.lock .medusa/server/yarn.lock
           cp .yarnrc.yml .medusa/server/.yarnrc.yml
-
-          # 2. Prune dev-dependencies on GitHub (keeps the upload small)
           cd .medusa/server
           yarn workspaces focus --production
-
-          # 3. Archive the contents of the server folder
           tar -czf ../../build.tar.gz .
 
       - name: Copy bundle to EC2
@@ -67,18 +58,13 @@ jobs:
           script: |
             set -e
             cd /var/www/medusa
-
-            # Extract the ready-to-run bundle
             tar -xzf build.tar.gz
             rm build.tar.gz
-
-            # Inject production ENV
             echo "${{ secrets.PROD_ENV_FILE }}" > .env.production
 
-            # Run migrations (Safe to run on EC2 with your 2GB swap)
+            # Since you enabled Corepack on EC2 already, this will work
             npx medusa db:migrate
 
-            # Start or Reload with PM2
             if pm2 describe medusa >/dev/null 2>&1; then
               pm2 reload medusa
             else
