@@ -16,29 +16,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
-          # DO NOT use cache: 'yarn' here, it triggers the Yarn 1 error
 
       - name: Enable Corepack & Force Yarn 4.7.0
         run: |
           corepack enable
           corepack prepare yarn@4.7.0 --activate
-          yarn --version # This should now output 4.7.0
 
-      - name: Build Project (on GitHub)
+      - name: Install & Build (on GitHub)
         run: |
           yarn install --immutable
           yarn build
         env:
           NODE_ENV: production
 
-      - name: Prepare Production Bundle
+      # CHANGED: We ship the root config and the build folder together.
+      # No more 'workspaces focus' inside the build folder.
+      - name: Create Bundle
         run: |
-          cp package.json .medusa/server/package.json
-          cp yarn.lock .medusa/server/yarn.lock
-          cp .yarnrc.yml .medusa/server/.yarnrc.yml
-          cd .medusa/server
-          yarn workspaces focus --production
-          tar -czf ../../build.tar.gz .
+          tar -czf build.tar.gz .medusa package.json yarn.lock .yarnrc.yml
 
       - name: Copy bundle to EC2
         uses: appleboy/scp-action@master
@@ -58,16 +53,26 @@ jobs:
           script: |
             set -e
             cd /var/www/medusa
+
+            # 1. Atomic Cleanup: Prevents "Ghost Entities" from old builds
+            rm -rf .medusa package.json yarn.lock .yarnrc.yml
+
+            # 2. Extract fresh artifact
             tar -xzf build.tar.gz
             rm build.tar.gz
-            echo "${{ secrets.PROD_ENV_FILE }}" > .env
 
-            # Since you enabled Corepack on EC2 already, this will work
+            # 3. Environment Setup
+            echo "${{ secrets.PROD_ENV_FILE }}" > .env
+            cp .env .medusa/server/.env
+
+            # 4. Root Install: Safe and stable for the dependency graph
+            corepack enable
+            yarn install --production
+
+            # 5. DB Migrations
             npx medusa db:migrate
 
-            if pm2 describe medusa >/dev/null 2>&1; then
-              pm2 reload medusa
-            else
-              pm2 start yarn --name "medusa" -- start
-            fi
+            # 6. PM2 Management: Clean reboot using the Medusa CLI
+            pm2 delete medusa || true
+            pm2 start "npx medusa start" --name "medusa"
             pm2 save
