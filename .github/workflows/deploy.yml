@@ -6,52 +6,75 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
+      # -----------------------------
+      # 1. Checkout
+      # -----------------------------
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # -----------------------------
+      # 2. Setup Node
+      # -----------------------------
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
+      # -----------------------------
+      # 3. Setup Yarn 4
+      # -----------------------------
       - name: Enable Corepack & Yarn
         run: |
           corepack enable
           corepack prepare yarn@4.7.0 --activate
 
+      # -----------------------------
+      # 4. Install deps (FULL for build)
+      # -----------------------------
       - name: Install Dependencies
         run: yarn install --immutable
 
+      # -----------------------------
+      # 5. Build (Medusa compiles to .medusa)
+      # -----------------------------
       - name: Build Project
         run: yarn build
         env:
           NODE_ENV: production
 
+      # -----------------------------
+      # 6. Fix config → compiled paths
+      # -----------------------------
       - name: Productionize Config
-        # This is the "Secret Sauce".
-        # We take the compiled JS config and tell it to look INSIDE the build folder
-        # for your custom modules instead of looking for a 'src' folder.
         run: |
           cp .medusa/server/medusa-config.js ./medusa-config.js
           sed -i 's|"\./src/modules/|"\./.medusa/server/src/modules/|g' medusa-config.js
           sed -i "s|'\./src/modules/|'\./.medusa/server/src/modules/|g" medusa-config.js
-          echo "✅ Config updated to use compiled module paths."
+          echo "✅ Config patched for compiled modules"
 
+      # -----------------------------
+      # 7. Verify build
+      # -----------------------------
       - name: Verify Build
         run: |
-          test -f .medusa/server/public/admin/index.html || (echo "❌ Admin build missing" && exit 1)
-          test -f medusa-config.js || (echo "❌ JS Config missing" && exit 1)
+          test -f .medusa/server/public/admin/index.html || (echo "❌ Admin missing" && exit 1)
+          test -f medusa-config.js || (echo "❌ Config missing" && exit 1)
 
+      # -----------------------------
+      # 8. Prune deps (production only)
+      # -----------------------------
       - name: Prune Dependencies
         run: yarn workspaces focus --all --production
 
+      # -----------------------------
+      # 9. Create bundle
+      # -----------------------------
       - name: Create Bundle
-        # CRITICAL: We DO NOT include 'src' or any '.ts' files.
-        # The server will run entirely on the compiled Javascript.
         run: |
           tar -czf build.tar.gz \
             .medusa \
@@ -59,6 +82,9 @@ jobs:
             package.json \
             medusa-config.js
 
+      # -----------------------------
+      # 10. Upload to EC2
+      # -----------------------------
       - name: Copy bundle to EC2
         uses: appleboy/scp-action@master
         with:
@@ -68,6 +94,9 @@ jobs:
           source: "build.tar.gz"
           target: "/var/www/aroha"
 
+      # -----------------------------
+      # 11. Deploy on EC2
+      # -----------------------------
       - name: Deploy on EC2
         uses: appleboy/ssh-action@master
         with:
@@ -76,33 +105,40 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
-            cd /var/www/aroha
+
+            BASE_DIR=/var/www/aroha
+            RELEASES_DIR=$BASE_DIR/releases
+            CURRENT_DIR=$BASE_DIR/current
+
+            mkdir -p $RELEASES_DIR
+            cd $BASE_DIR
 
             echo "📦 Extracting release..."
             TIMESTAMP=$(date +%s)
-            RELEASE_DIR="/var/www/aroha/releases/$TIMESTAMP"
+            RELEASE_DIR=$RELEASES_DIR/$TIMESTAMP
             mkdir -p $RELEASE_DIR
+
             tar -xzf build.tar.gz -C $RELEASE_DIR
             rm build.tar.gz
 
-            echo "⚙️  Setting environment..."
+            echo "⚙️ Setting environment..."
             echo "${{ secrets.PROD_ENV_FILE }}" > $RELEASE_DIR/.env
             cp $RELEASE_DIR/.env $RELEASE_DIR/.medusa/server/.env
 
             echo "🔗 Switching symlink..."
-            ln -sfn $RELEASE_DIR /var/www/aroha/current
+            ln -sfn $RELEASE_DIR $CURRENT_DIR
+
+            cd $CURRENT_DIR
 
             echo "🗄️ Running migrations..."
-            cd /var/www/aroha/current
-            # We force production mode so Medusa uses the JS config exclusively
             export NODE_ENV=production
-            ./node_modules/.bin/medusa db:migrate
+            npx medusa db:migrate
 
             echo "🚀 Restarting PM2..."
-            pm2 delete aroha || true
-            NODE_ENV=production pm2 start ./node_modules/.bin/medusa --name aroha --max-memory-restart 800M -- start
+            pm2 reload aroha || pm2 start ./node_modules/.bin/medusa --name aroha -- start
             pm2 save
 
-            echo "🧹 Cleaning up old releases..."
-            ls -dt releases/* | tail -n +4 | xargs rm -rf || true
-            echo "✅ Aroha is LIVE and Pure JS!"
+            echo "🧹 Cleaning old releases..."
+            ls -dt $RELEASES_DIR/* | tail -n +4 | xargs rm -rf || true
+
+            echo "✅ Deployment successful"
