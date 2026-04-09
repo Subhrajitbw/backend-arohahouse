@@ -1,4 +1,5 @@
-name: Deploy Aroha Backend
+name: Deploy Aroha House Unified
+
 on:
   workflow_dispatch:
 
@@ -15,7 +16,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "20"
 
       - name: Enable Corepack & Yarn
         run: |
@@ -32,31 +33,27 @@ jobs:
 
       - name: Prepare Production Artifacts
         run: |
-          # Use the compiled JS config
+          # We use the pre-built JS config so the EC2 doesn't need ts-node
           cp .medusa/server/medusa-config.js ./medusa-config.js
+          # Verify Admin
+          test -d .medusa/server/public/admin || (echo "❌ Admin build missing" && exit 1)
 
-          # Verify Admin build
-          if [ -d ".medusa/server/public/admin" ]; then
-            echo "✅ Admin found in server/public"
-          elif [ -d ".medusa/admin" ]; then
-            echo "✅ Admin found in .medusa/admin"
-          else
-            echo "❌ Admin missing"
-            exit 1
-          fi
-
-      - name: Prune to Production Dependencies
+      - name: Prune Dependencies (The RAM Saver)
+        # This removes dev-tools but keeps the modules needed for the server to run
         run: yarn workspaces focus --all --production
 
-      - name: Create Deployment Bundle
-        # We re-include 'src' because Medusa v2 needs it to resolve module paths
+      - name: Create Atomic Bundle
+        # We include src and tsconfig because Medusa v2 uses them for path mapping
+        # But we include node_modules so the EC2 never has to run 'yarn install'
         run: |
           tar -czf build.tar.gz \
             .medusa \
             node_modules \
+            src \
             package.json \
             medusa-config.js \
-            src
+            medusa-config.ts \
+            tsconfig.json
 
       - name: Copy bundle to EC2
         uses: appleboy/scp-action@master
@@ -77,35 +74,32 @@ jobs:
             set -e
             cd /var/www/aroha
 
+            # 1. Create a unique folder for this release
             TIMESTAMP=$(date +%s)
             RELEASE_DIR="releases/$TIMESTAMP"
             mkdir -p $RELEASE_DIR
 
+            # 2. Extract (Instant, no network needed)
             tar -xzf build.tar.gz -C $RELEASE_DIR
             rm build.tar.gz
 
-            echo "⚙️ Setting environment..."
+            # 3. Environment Setup
             echo "${{ secrets.PROD_ENV_FILE }}" > $RELEASE_DIR/.env
             cp $RELEASE_DIR/.env $RELEASE_DIR/.medusa/server/.env
 
-            echo "🔗 Switching symlink..."
+            # 4. Atomic Switch (The magic part)
+            # This makes 'current' point to the new code instantly
             ln -sfn $RELEASE_DIR current
 
-            echo "🗄 Running migrations..."
+            # 5. Run Migrations from the 'current' folder
             cd current
-
-            # CRITICAL: We prepend NODE_ENV=production to stop Medusa from looking for ts-node
             export NODE_ENV=production
             ./node_modules/.bin/medusa db:migrate
 
-            echo "🚀 Restarting PM2..."
+            # 6. PM2 Restart
             pm2 delete aroha || true
-
-            # Start with production flag and memory limits
             NODE_ENV=production pm2 start ./node_modules/.bin/medusa --name aroha --max-memory-restart 800M -- start
             pm2 save
 
-            echo "🧹 Cleaning old releases..."
+            # 7. Cleanup: Keep only last 3 releases to save disk space
             ls -dt releases/* | tail -n +4 | xargs rm -rf || true
-
-            echo "✅ Aroha is Live!"
