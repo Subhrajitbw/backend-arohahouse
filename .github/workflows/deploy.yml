@@ -1,5 +1,4 @@
 name: Deploy Aroha House Backend
-
 on:
   workflow_dispatch:
 
@@ -26,25 +25,24 @@ jobs:
       - name: Install Dependencies
         run: yarn install --immutable
 
-      - name: Build project
+      - name: Build Project
         run: yarn build
         env:
           NODE_ENV: production
 
-      - name: Focus Production Dependencies
+      - name: Prune to Production Dependencies
         run: yarn workspaces focus --all --production
 
-      - name: Create Deployment Bundle
-        # Changed medusa-config.js to medusa-config.ts
-        # Included both just to be 100% safe
+      - name: Create Production Bundle
+        # CRITICAL: Added 'src' folder because your config references it for modules.
+        # Included 'medusa-config.ts' and '.medusa' build folder.
         run: |
           tar -czf build.tar.gz \
             .medusa \
             node_modules \
             package.json \
-            yarn.lock \
-            .yarnrc.yml \
-            medusa-config.ts
+            medusa-config.ts \
+            src
 
       - name: Copy bundle to EC2
         uses: appleboy/scp-action@master
@@ -67,32 +65,40 @@ jobs:
 
             echo "📦 Preparing release..."
             mkdir -p releases
-            RELEASE_DIR="releases/$(date +%s)"
+            # Use a variable for the timestamp to ensure consistency throughout the script
+            TIMESTAMP=$(date +%s)
+            RELEASE_DIR="releases/$TIMESTAMP"
             mkdir -p $RELEASE_DIR
 
+            # Extract the bundle
             tar -xzf build.tar.gz -C $RELEASE_DIR
             rm build.tar.gz
 
             echo "⚙️ Setting environment..."
+            # Injecting the production secret into the new release folder
             echo "${{ secrets.PROD_ENV_FILE }}" > $RELEASE_DIR/.env
-            # Medusa v2 often looks inside the server folder for env
+            # Standard practice for Medusa v2 loaders
             cp $RELEASE_DIR/.env $RELEASE_DIR/.medusa/server/.env
 
             echo "🔗 Switching to new release..."
+            # Update the symlink 'current' to point to the fresh release
             ln -sfn $RELEASE_DIR current
 
             echo "🗄 Running migrations..."
             cd current
-            # Use the local binary to ensure version matching
+            # Use the local Medusa binary to ensure version parity
             ./node_modules/.bin/medusa db:migrate
 
             echo "🚀 Restarting PM2..."
+            # We delete and start to ensure no memory leakage or ghost processes
             pm2 delete medusa || true
-            # Added --max-memory-restart to protect your T3.micro
+
+            # Start the server using the compiled Medusa CLI
+            # --max-memory-restart protects your T3.micro from OOM crashes
             pm2 start ./node_modules/.bin/medusa --name medusa --max-memory-restart 800M -- start
             pm2 save
 
-            echo "🧹 Cleaning old releases..."
+            echo "🧹 Cleaning old releases (Keeping latest 3)..."
             ls -dt releases/* | tail -n +4 | xargs rm -rf || true
 
-            echo "✅ Deployment complete"
+            echo "✅ Aroha House is Live!"
