@@ -50,7 +50,8 @@ jobs:
             package.json \
             yarn.lock \
             .yarnrc.yml \
-            .yarn
+            .yarn \
+            medusa-config.js
 
       # 8. Upload to EC2
       - name: Copy bundle to EC2
