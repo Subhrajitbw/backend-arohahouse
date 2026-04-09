@@ -1,5 +1,4 @@
 name: Deploy Aroha Backend
-
 on:
   workflow_dispatch:
 
@@ -27,38 +26,37 @@ jobs:
         run: yarn install --immutable
 
       - name: Build Project
-        # This compiles the server and the admin dashboard
         run: yarn build
         env:
           NODE_ENV: production
 
       - name: Prepare Production Artifacts
         run: |
-          # Use the compiled JS config for the production runtime
+          # Use the compiled JS config
           cp .medusa/server/medusa-config.js ./medusa-config.js
 
-          # Verify that the admin build exists (In v2 it's usually in server/public/admin)
+          # Verify Admin build
           if [ -d ".medusa/server/public/admin" ]; then
-            echo "✅ Admin build found in server/public/admin"
+            echo "✅ Admin found in server/public"
           elif [ -d ".medusa/admin" ]; then
-            echo "✅ Admin build found in .medusa/admin"
+            echo "✅ Admin found in .medusa/admin"
           else
-            echo "❌ Admin build missing! Check medusa-config.ts"
+            echo "❌ Admin missing"
             exit 1
           fi
 
       - name: Prune to Production Dependencies
-        # This keeps the bundle small and the EC2 RAM usage low
         run: yarn workspaces focus --all --production
 
       - name: Create Deployment Bundle
-        # We ship ONLY the build, runtime deps, and the JS config. No source code.
+        # We re-include 'src' because Medusa v2 needs it to resolve module paths
         run: |
           tar -czf build.tar.gz \
             .medusa \
             node_modules \
             package.json \
-            medusa-config.js
+            medusa-config.js \
+            src
 
       - name: Copy bundle to EC2
         uses: appleboy/scp-action@master
@@ -79,8 +77,6 @@ jobs:
             set -e
             cd /var/www/aroha
 
-            echo "📦 Extracting new release..."
-            mkdir -p releases
             TIMESTAMP=$(date +%s)
             RELEASE_DIR="releases/$TIMESTAMP"
             mkdir -p $RELEASE_DIR
@@ -93,23 +89,23 @@ jobs:
             cp $RELEASE_DIR/.env $RELEASE_DIR/.medusa/server/.env
 
             echo "🔗 Switching symlink..."
-            # Atomic swap: 'current' now points to the new release
             ln -sfn $RELEASE_DIR current
 
             echo "🗄 Running migrations..."
             cd current
+
+            # CRITICAL: We prepend NODE_ENV=production to stop Medusa from looking for ts-node
+            export NODE_ENV=production
             ./node_modules/.bin/medusa db:migrate
 
             echo "🚀 Restarting PM2..."
-            # Using the project name 'aroha'
             pm2 delete aroha || true
 
-            # Start via the 'current' path for absolute reliability
-            # --max-memory-restart 800M prevents T3.micro crashes
-            pm2 start ./node_modules/.bin/medusa --name aroha --max-memory-restart 800M -- start
+            # Start with production flag and memory limits
+            NODE_ENV=production pm2 start ./node_modules/.bin/medusa --name aroha --max-memory-restart 800M -- start
             pm2 save
 
-            echo "🧹 Cleaning old releases (keeping last 3)..."
+            echo "🧹 Cleaning old releases..."
             ls -dt releases/* | tail -n +4 | xargs rm -rf || true
 
-            echo "✅ Aroha deployment complete!"
+            echo "✅ Aroha is Live!"
