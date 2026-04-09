@@ -1,40 +1,58 @@
 name: Deploy Aroha House Backend
+
 on:
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
+      # 1. Checkout
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 2. Setup Node 24
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "24"
 
-      - name: Enable Corepack & Force Yarn 4.7.0
+      # 3. Enable Yarn 4
+      - name: Enable Corepack & Yarn
         run: |
           corepack enable
           corepack prepare yarn@4.7.0 --activate
 
-      - name: Install & Build (on GitHub)
+      # 4. Install FULL deps (including prod)
+      - name: Install Dependencies
         run: |
           yarn install --immutable
+
+      # 5. Build project
+      - name: Build
+        run: |
           yarn build
         env:
           NODE_ENV: production
 
-      # CHANGED: We ship the root config and the build folder together.
-      # No more 'workspaces focus' inside the build folder.
-      - name: Create Bundle
+      # 6. Prune to production dependencies ONLY
+      - name: Focus Production Dependencies
         run: |
-          tar -czf build.tar.gz .medusa package.json yarn.lock .yarnrc.yml
+          yarn workspaces focus --all --production
 
+      # 7. Create FULL runtime bundle (NO INSTALL NEEDED LATER)
+      - name: Create Deployment Bundle
+        run: |
+          tar -czf build.tar.gz \
+            .medusa \
+            node_modules \
+            package.json \
+            yarn.lock \
+            .yarnrc.yml \
+            .yarn
+
+      # 8. Upload to EC2
       - name: Copy bundle to EC2
         uses: appleboy/scp-action@master
         with:
@@ -44,6 +62,7 @@ jobs:
           source: "build.tar.gz"
           target: "/var/www/medusa"
 
+      # 9. Zero-load deploy on EC2
       - name: Deploy on EC2
         uses: appleboy/ssh-action@master
         with:
@@ -54,25 +73,39 @@ jobs:
             set -e
             cd /var/www/medusa
 
-            # 1. Atomic Cleanup: Prevents "Ghost Entities" from old builds
-            rm -rf .medusa package.json yarn.lock .yarnrc.yml
+            echo "📦 Preparing release..."
 
-            # 2. Extract fresh artifact
-            tar -xzf build.tar.gz
+            # Create releases folder if not exists
+            mkdir -p releases
+
+            # Unique release folder (timestamp)
+            RELEASE_DIR="releases/$(date +%s)"
+            mkdir -p $RELEASE_DIR
+
+            # Extract build
+            tar -xzf build.tar.gz -C $RELEASE_DIR
             rm build.tar.gz
 
-            # 3. Environment Setup
-            echo "${{ secrets.PROD_ENV_FILE }}" > .env
-            cp .env .medusa/server/.env
+            echo "⚙️ Setting environment..."
+            echo "${{ secrets.PROD_ENV_FILE }}" > $RELEASE_DIR/.env
+            cp $RELEASE_DIR/.env $RELEASE_DIR/.medusa/server/.env
 
-            # 4. Root Install: Safe and stable for the dependency graph
-            corepack enable
-            yarn install --production
+            echo "🔗 Switching to new release..."
 
-            # 5. DB Migrations
-            npx medusa db:migrate
+            # Atomic symlink switch
+            ln -sfn $RELEASE_DIR current
 
-            # 6. PM2 Management: Clean reboot using the Medusa CLI
+            echo "🗄 Running migrations..."
+            cd current
+            node node_modules/.bin/medusa db:migrate
+
+            echo "🚀 Restarting PM2..."
+
             pm2 delete medusa || true
-            pm2 start "npx medusa start" --name "medusa"
+            pm2 start node_modules/.bin/medusa --name medusa -- start
             pm2 save
+
+            echo "🧹 Cleaning old releases..."
+            ls -dt releases/* | tail -n +4 | xargs rm -rf || true
+
+            echo "✅ Deployment complete"
