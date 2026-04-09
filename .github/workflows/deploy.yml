@@ -34,13 +34,13 @@ jobs:
           corepack prepare yarn@4.7.0 --activate
 
       # -----------------------------
-      # 4. Install deps (FULL for build)
+      # 4. Install Dependencies
       # -----------------------------
       - name: Install Dependencies
         run: yarn install --immutable
 
       # -----------------------------
-      # 5. Build (Medusa compiles to .medusa)
+      # 5. Build Medusa
       # -----------------------------
       - name: Build Project
         run: yarn build
@@ -48,31 +48,30 @@ jobs:
           NODE_ENV: production
 
       # -----------------------------
-      # 6. Fix config → compiled paths
+      # 6. Fix compiled config paths
       # -----------------------------
       - name: Productionize Config
         run: |
           cp .medusa/server/medusa-config.js ./medusa-config.js
           sed -i 's|"\./src/modules/|"\./.medusa/server/src/modules/|g' medusa-config.js
           sed -i "s|'\./src/modules/|'\./.medusa/server/src/modules/|g" medusa-config.js
-          echo "✅ Config patched for compiled modules"
 
       # -----------------------------
-      # 7. Verify build
+      # 7. Verify build output
       # -----------------------------
       - name: Verify Build
         run: |
-          test -f .medusa/server/public/admin/index.html || (echo "❌ Admin missing" && exit 1)
+          test -f .medusa/server/public/admin/index.html || (echo "❌ Admin build missing" && exit 1)
           test -f medusa-config.js || (echo "❌ Config missing" && exit 1)
 
       # -----------------------------
-      # 8. Prune deps (production only)
+      # 8. Install production deps only
       # -----------------------------
       - name: Prune Dependencies
         run: yarn workspaces focus --all --production
 
       # -----------------------------
-      # 9. Create bundle
+      # 9. Bundle build
       # -----------------------------
       - name: Create Bundle
         run: |
@@ -141,4 +140,4 @@ jobs:
             echo "🧹 Cleaning old releases..."
             ls -dt $RELEASES_DIR/* | tail -n +4 | xargs rm -rf || true
 
-            echo "✅ Deployment successful"
+            echo "✅ Deployment complete"
