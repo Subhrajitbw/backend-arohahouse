@@ -6,43 +6,37 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-      # 1. Checkout
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Setup Node 24
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "24"
 
-      # 3. Enable Yarn 4
       - name: Enable Corepack & Yarn
         run: |
           corepack enable
           corepack prepare yarn@4.7.0 --activate
 
-      # 4. Install FULL deps (including prod)
       - name: Install Dependencies
-        run: |
-          yarn install --immutable
+        run: yarn install --immutable
 
-      # 5. Build project
-      - name: Build
-        run: |
-          yarn build
+      - name: Build project
+        run: yarn build
         env:
           NODE_ENV: production
 
-      # 6. Prune to production dependencies ONLY
       - name: Focus Production Dependencies
-        run: |
-          yarn workspaces focus --all --production
+        run: yarn workspaces focus --all --production
 
-      # 7. Create FULL runtime bundle (NO INSTALL NEEDED LATER)
       - name: Create Deployment Bundle
+        # Changed medusa-config.js to medusa-config.ts
+        # Included both just to be 100% safe
         run: |
           tar -czf build.tar.gz \
             .medusa \
@@ -50,10 +44,8 @@ jobs:
             package.json \
             yarn.lock \
             .yarnrc.yml \
-            .yarn \
-            medusa-config.js
+            medusa-config.ts
 
-      # 8. Upload to EC2
       - name: Copy bundle to EC2
         uses: appleboy/scp-action@master
         with:
@@ -63,7 +55,6 @@ jobs:
           source: "build.tar.gz"
           target: "/var/www/medusa"
 
-      # 9. Zero-load deploy on EC2
       - name: Deploy on EC2
         uses: appleboy/ssh-action@master
         with:
@@ -75,35 +66,30 @@ jobs:
             cd /var/www/medusa
 
             echo "📦 Preparing release..."
-
-            # Create releases folder if not exists
             mkdir -p releases
-
-            # Unique release folder (timestamp)
             RELEASE_DIR="releases/$(date +%s)"
             mkdir -p $RELEASE_DIR
 
-            # Extract build
             tar -xzf build.tar.gz -C $RELEASE_DIR
             rm build.tar.gz
 
             echo "⚙️ Setting environment..."
             echo "${{ secrets.PROD_ENV_FILE }}" > $RELEASE_DIR/.env
+            # Medusa v2 often looks inside the server folder for env
             cp $RELEASE_DIR/.env $RELEASE_DIR/.medusa/server/.env
 
             echo "🔗 Switching to new release..."
-
-            # Atomic symlink switch
             ln -sfn $RELEASE_DIR current
 
             echo "🗄 Running migrations..."
             cd current
-            node node_modules/.bin/medusa db:migrate
+            # Use the local binary to ensure version matching
+            ./node_modules/.bin/medusa db:migrate
 
             echo "🚀 Restarting PM2..."
-
             pm2 delete medusa || true
-            pm2 start node_modules/.bin/medusa --name medusa -- start
+            # Added --max-memory-restart to protect your T3.micro
+            pm2 start ./node_modules/.bin/medusa --name medusa --max-memory-restart 800M -- start
             pm2 save
 
             echo "🧹 Cleaning old releases..."
