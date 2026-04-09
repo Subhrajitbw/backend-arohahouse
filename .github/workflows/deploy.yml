@@ -26,23 +26,33 @@ jobs:
         run: yarn install --immutable
 
       - name: Build Project
+        # This builds the backend into .medusa/server and admin into .medusa/admin
         run: yarn build
         env:
           NODE_ENV: production
 
+      - name: Prepare Production Config
+        # We pull the ALREADY TRANSPILED config out of the build folder.
+        # This config already has the correct paths for your compiled modules.
+        run: cp .medusa/server/medusa-config.js ./medusa-config.js
+
+      - name: Verify Artifacts
+        run: |
+          test -f .medusa/admin/index.html || (echo "❌ Admin build missing" && exit 1)
+          test -f medusa-config.js || (echo "❌ Compiled config missing" && exit 1)
+          echo "✅ All production artifacts verified."
+
       - name: Prune to Production Dependencies
         run: yarn workspaces focus --all --production
 
-      - name: Create Production Bundle
-        # CRITICAL: Added 'src' folder because your config references it for modules.
-        # Included 'medusa-config.ts' and '.medusa' build folder.
+      - name: Create Deployment Bundle
+        # NO 'src', NO '.ts'. Just the compiled code and runtime dependencies.
         run: |
           tar -czf build.tar.gz \
             .medusa \
             node_modules \
             package.json \
-            medusa-config.ts \
-            src
+            medusa-config.js
 
       - name: Copy bundle to EC2
         uses: appleboy/scp-action@master
@@ -63,42 +73,34 @@ jobs:
             set -e
             cd /var/www/medusa
 
-            echo "📦 Preparing release..."
+            echo "📦 Extracting new release..."
             mkdir -p releases
-            # Use a variable for the timestamp to ensure consistency throughout the script
             TIMESTAMP=$(date +%s)
             RELEASE_DIR="releases/$TIMESTAMP"
             mkdir -p $RELEASE_DIR
 
-            # Extract the bundle
             tar -xzf build.tar.gz -C $RELEASE_DIR
             rm build.tar.gz
 
             echo "⚙️ Setting environment..."
-            # Injecting the production secret into the new release folder
             echo "${{ secrets.PROD_ENV_FILE }}" > $RELEASE_DIR/.env
-            # Standard practice for Medusa v2 loaders
-            cp $RELEASE_DIR/.env $RELEASE_DIR/.medusa/server/.env
 
-            echo "🔗 Switching to new release..."
-            # Update the symlink 'current' to point to the fresh release
+            echo "🔗 Switching symlink..."
             ln -sfn $RELEASE_DIR current
 
             echo "🗄 Running migrations..."
             cd current
-            # Use the local Medusa binary to ensure version parity
+            # Since we are using a JS config, this is lightning fast
             ./node_modules/.bin/medusa db:migrate
 
             echo "🚀 Restarting PM2..."
-            # We delete and start to ensure no memory leakage or ghost processes
             pm2 delete medusa || true
 
-            # Start the server using the compiled Medusa CLI
-            # --max-memory-restart protects your T3.micro from OOM crashes
+            # We use 'medusa start' which will now find 'medusa-config.js' automatically
             pm2 start ./node_modules/.bin/medusa --name medusa --max-memory-restart 800M -- start
             pm2 save
 
-            echo "🧹 Cleaning old releases (Keeping latest 3)..."
+            echo "🧹 Cleaning old releases..."
             ls -dt releases/* | tail -n +4 | xargs rm -rf || true
 
-            echo "✅ Aroha House is Live!"
+            echo "✅ Aroha House is Live (Production Grade)!"
