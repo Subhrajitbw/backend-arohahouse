@@ -1,61 +1,38 @@
-name: Deploy Aroha House Unified
-
+name: Deploy Aroha Backend
 on:
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js & Yarn
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Enable Corepack & Yarn
+      - name: Enable Corepack
         run: |
           corepack enable
           corepack prepare yarn@4.7.0 --activate
 
-      - name: Install Dependencies
-        run: yarn install --immutable
-
-      - name: Build Project
-        run: yarn build
+      - name: Build
+        run: |
+          yarn install --immutable
+          yarn build
         env:
           NODE_ENV: production
 
-      - name: Prepare Production Artifacts
+      - name: Bundle
         run: |
-          # We use the pre-built JS config so the EC2 doesn't need ts-node
           cp .medusa/server/medusa-config.js ./medusa-config.js
-          # Verify Admin
-          test -d .medusa/server/public/admin || (echo "❌ Admin build missing" && exit 1)
+          # We include 'src' one last time to satisfy the module loader
+          tar -czf build.tar.gz .medusa node_modules package.json medusa-config.js src
 
-      - name: Prune Dependencies (The RAM Saver)
-        # This removes dev-tools but keeps the modules needed for the server to run
-        run: yarn workspaces focus --all --production
-
-      - name: Create Atomic Bundle
-        # We include src and tsconfig because Medusa v2 uses them for path mapping
-        # But we include node_modules so the EC2 never has to run 'yarn install'
-        run: |
-          tar -czf build.tar.gz \
-            .medusa \
-            node_modules \
-            src \
-            package.json \
-            medusa-config.js \
-            medusa-config.ts \
-            tsconfig.json
-
-      - name: Copy bundle to EC2
+      - name: Copy to EC2
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -71,35 +48,38 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            echo "🏁 Starting SSH script..."
             set -e
+
+            # Ensure the directory exists
+            mkdir -p /var/www/aroha/releases
             cd /var/www/aroha
 
-            # 1. Create a unique folder for this release
             TIMESTAMP=$(date +%s)
-            RELEASE_DIR="releases/$TIMESTAMP"
+            RELEASE_DIR="/var/www/aroha/releases/$TIMESTAMP"
             mkdir -p $RELEASE_DIR
 
-            # 2. Extract (Instant, no network needed)
+            echo "📦 Extracting to $RELEASE_DIR..."
             tar -xzf build.tar.gz -C $RELEASE_DIR
             rm build.tar.gz
 
-            # 3. Environment Setup
+            echo "⚙️  Injecting .env..."
             echo "${{ secrets.PROD_ENV_FILE }}" > $RELEASE_DIR/.env
             cp $RELEASE_DIR/.env $RELEASE_DIR/.medusa/server/.env
 
-            # 4. Atomic Switch (The magic part)
-            # This makes 'current' point to the new code instantly
-            ln -sfn $RELEASE_DIR current
+            echo "🔗 Updating symlink..."
+            # Use absolute paths for the symlink to avoid resolution errors
+            ln -sfn $RELEASE_DIR /var/www/aroha/current
 
-            # 5. Run Migrations from the 'current' folder
-            cd current
+            echo "🗄️ Running Migrations..."
+            cd /var/www/aroha/current
             export NODE_ENV=production
+            # Use the full path to the binary
             ./node_modules/.bin/medusa db:migrate
 
-            # 6. PM2 Restart
+            echo "🚀 PM2 Update..."
             pm2 delete aroha || true
             NODE_ENV=production pm2 start ./node_modules/.bin/medusa --name aroha --max-memory-restart 800M -- start
             pm2 save
 
-            # 7. Cleanup: Keep only last 3 releases to save disk space
-            ls -dt releases/* | tail -n +4 | xargs rm -rf || true
+            echo "✅ Deployment successful!"
