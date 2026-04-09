@@ -1,4 +1,5 @@
-name: Deploy Aroha House Backend
+name: Deploy Aroha Backend
+
 on:
   workflow_dispatch:
 
@@ -26,27 +27,32 @@ jobs:
         run: yarn install --immutable
 
       - name: Build Project
-        # This builds the backend into .medusa/server and admin into .medusa/admin
+        # This compiles the server and the admin dashboard
         run: yarn build
         env:
           NODE_ENV: production
 
-      - name: Prepare Production Config
-        # We pull the ALREADY TRANSPILED config out of the build folder.
-        # This config already has the correct paths for your compiled modules.
-        run: cp .medusa/server/medusa-config.js ./medusa-config.js
-
-      - name: Verify Artifacts
+      - name: Prepare Production Artifacts
         run: |
-          test -f .medusa/admin/index.html || (echo "❌ Admin build missing" && exit 1)
-          test -f medusa-config.js || (echo "❌ Compiled config missing" && exit 1)
-          echo "✅ All production artifacts verified."
+          # Use the compiled JS config for the production runtime
+          cp .medusa/server/medusa-config.js ./medusa-config.js
+
+          # Verify that the admin build exists (In v2 it's usually in server/public/admin)
+          if [ -d ".medusa/server/public/admin" ]; then
+            echo "✅ Admin build found in server/public/admin"
+          elif [ -d ".medusa/admin" ]; then
+            echo "✅ Admin build found in .medusa/admin"
+          else
+            echo "❌ Admin build missing! Check medusa-config.ts"
+            exit 1
+          fi
 
       - name: Prune to Production Dependencies
+        # This keeps the bundle small and the EC2 RAM usage low
         run: yarn workspaces focus --all --production
 
       - name: Create Deployment Bundle
-        # NO 'src', NO '.ts'. Just the compiled code and runtime dependencies.
+        # We ship ONLY the build, runtime deps, and the JS config. No source code.
         run: |
           tar -czf build.tar.gz \
             .medusa \
@@ -61,7 +67,7 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           source: "build.tar.gz"
-          target: "/var/www/medusa"
+          target: "/var/www/aroha"
 
       - name: Deploy on EC2
         uses: appleboy/ssh-action@master
@@ -71,7 +77,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
-            cd /var/www/medusa
+            cd /var/www/aroha
 
             echo "📦 Extracting new release..."
             mkdir -p releases
@@ -84,23 +90,26 @@ jobs:
 
             echo "⚙️ Setting environment..."
             echo "${{ secrets.PROD_ENV_FILE }}" > $RELEASE_DIR/.env
+            cp $RELEASE_DIR/.env $RELEASE_DIR/.medusa/server/.env
 
             echo "🔗 Switching symlink..."
+            # Atomic swap: 'current' now points to the new release
             ln -sfn $RELEASE_DIR current
 
             echo "🗄 Running migrations..."
             cd current
-            # Since we are using a JS config, this is lightning fast
             ./node_modules/.bin/medusa db:migrate
 
             echo "🚀 Restarting PM2..."
-            pm2 delete medusa || true
+            # Using the project name 'aroha'
+            pm2 delete aroha || true
 
-            # We use 'medusa start' which will now find 'medusa-config.js' automatically
-            pm2 start ./node_modules/.bin/medusa --name medusa --max-memory-restart 800M -- start
+            # Start via the 'current' path for absolute reliability
+            # --max-memory-restart 800M prevents T3.micro crashes
+            pm2 start ./node_modules/.bin/medusa --name aroha --max-memory-restart 800M -- start
             pm2 save
 
-            echo "🧹 Cleaning old releases..."
+            echo "🧹 Cleaning old releases (keeping last 3)..."
             ls -dt releases/* | tail -n +4 | xargs rm -rf || true
 
-            echo "✅ Aroha House is Live (Production Grade)!"
+            echo "✅ Aroha deployment complete!"
