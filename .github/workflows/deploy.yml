@@ -1,4 +1,4 @@
-name: Deploy Medusa Backend (Zero Downtime)
+name: Deploy Medusa Backend (Zero Downtime + Rollback Safe)
 
 on:
   workflow_dispatch:
@@ -11,32 +11,41 @@ jobs:
       # -----------------------------
       # 1. Checkout
       # -----------------------------
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       # -----------------------------
-      # 2. Node + Yarn
+      # 2. Setup Node
       # -----------------------------
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Enable Yarn
+      # -----------------------------
+      # 3. Enable Yarn
+      # -----------------------------
+      - name: Enable Corepack
         run: |
           corepack enable
           corepack prepare yarn@4.7.0 --activate
 
       # -----------------------------
-      # 3. Install + Build
+      # 4. Install dependencies
       # -----------------------------
-      - run: yarn install --immutable
+      - name: Install dependencies
+        run: yarn install --immutable
 
-      - name: Build
+      # -----------------------------
+      # 5. Build Medusa
+      # -----------------------------
+      - name: Build Medusa
         run: yarn build
         env:
           NODE_ENV: production
 
       # -----------------------------
-      # 4. Bundle
+      # 6. Create bundle
       # -----------------------------
       - name: Create bundle
         run: |
@@ -46,9 +55,10 @@ jobs:
             package.json
 
       # -----------------------------
-      # 5. Upload
+      # 7. Upload to EC2
       # -----------------------------
-      - uses: appleboy/scp-action@master
+      - name: Copy bundle to EC2
+        uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
@@ -57,9 +67,10 @@ jobs:
           target: "/var/www/medusa"
 
       # -----------------------------
-      # 6. Deploy (ZERO DOWNTIME)
+      # 8. Deploy (Zero Downtime)
       # -----------------------------
-      - uses: appleboy/ssh-action@master
+      - name: Deploy on EC2
+        uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
@@ -86,16 +97,18 @@ jobs:
 
             echo "⚙️ Writing env..."
             cat << 'EOF' > .env
-            ${{ secrets.PROD_ENV_FILE }}
-            EOF
+${{ secrets.PROD_ENV_FILE }}
+EOF
 
             echo "🌍 Loading env..."
             export NODE_ENV=production
-            export $(grep -v '^#' .env | xargs)
+            set -a
+            source .env
+            set +a
 
-            echo "🧪 Running migrations (SAFE CHECK)..."
+            echo "🗄️ Running migrations..."
             if ! npx medusa db:migrate; then
-              echo "❌ Migration failed. Aborting deploy."
+              echo "❌ Migration failed → rollback"
               exit 1
             fi
 
@@ -104,24 +117,24 @@ jobs:
               --name medusa-temp \
               -- start
 
-            sleep 5
+            sleep 6
 
             echo "🧪 Health check..."
             if ! curl -f http://localhost:9000/health; then
-              echo "❌ Health check failed. Rolling back..."
+              echo "❌ Health check failed → rollback"
               pm2 delete medusa-temp
               exit 1
             fi
 
-            echo "🔁 Swapping to new version..."
+            echo "🔁 Switching to new version..."
 
-            # Stop old process AFTER new is healthy
+            # Stop old AFTER new is healthy
             pm2 delete medusa || true
 
             # Rename temp → main
             pm2 restart medusa-temp --name medusa
 
-            # Update symlink ONLY after success
+            # Switch symlink
             ln -sfn $NEW_RELEASE $CURRENT
 
             pm2 save
@@ -129,4 +142,4 @@ jobs:
             echo "🧹 Cleaning old releases..."
             ls -dt $RELEASES/* | tail -n +4 | xargs rm -rf || true
 
-            echo "✅ Zero-downtime deploy complete"
+            echo "✅ Deploy complete (zero downtime)"
