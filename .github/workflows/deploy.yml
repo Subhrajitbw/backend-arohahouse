@@ -1,4 +1,4 @@
-name: Deploy Medusa Backend (Zero Downtime + Rollback Safe)
+name: Deploy Medusa Backend (Zero Downtime + Stable)
 
 on:
   workflow_dispatch:
@@ -11,14 +11,12 @@ jobs:
       # -----------------------------
       # 1. Checkout
       # -----------------------------
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       # -----------------------------
       # 2. Setup Node
       # -----------------------------
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
 
@@ -31,13 +29,12 @@ jobs:
           corepack prepare yarn@4.7.0 --activate
 
       # -----------------------------
-      # 4. Install dependencies
+      # 4. Install deps
       # -----------------------------
-      - name: Install dependencies
-        run: yarn install --immutable
+      - run: yarn install --immutable
 
       # -----------------------------
-      # 5. Build Medusa
+      # 5. Build
       # -----------------------------
       - name: Build Medusa
         run: yarn build
@@ -45,7 +42,7 @@ jobs:
           NODE_ENV: production
 
       # -----------------------------
-      # 6. Create bundle
+      # 6. Bundle
       # -----------------------------
       - name: Create bundle
         run: |
@@ -57,8 +54,7 @@ jobs:
       # -----------------------------
       # 7. Upload to EC2
       # -----------------------------
-      - name: Copy bundle to EC2
-        uses: appleboy/scp-action@master
+      - uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
@@ -67,10 +63,9 @@ jobs:
           target: "/var/www/medusa"
 
       # -----------------------------
-      # 8. Deploy (Zero Downtime)
+      # 8. Deploy
       # -----------------------------
-      - name: Deploy on EC2
-        uses: appleboy/ssh-action@master
+      - uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
@@ -96,22 +91,58 @@ jobs:
             cd $NEW_RELEASE
 
             echo "⚙️ Writing env..."
-            cat << 'EOF' > .env
-            ${{ secrets.PROD_ENV_FILE }}
-            EOF
+            printf "%s\n" "${{ secrets.PROD_ENV_FILE }}" > .env
 
             echo "🌍 Loading env..."
             export NODE_ENV=production
+
+            # Clean invalid lines (safety)
+            grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env > .env.clean || true
+            mv .env.clean .env || true
+
             set -a
             source .env
             set +a
 
-            echo "🗄️ Running migrations..."
-            if ! npx medusa db:migrate; then
-              echo "❌ Migration failed → rollback"
+            # -----------------------------
+            # 🔍 ENV DEBUG
+            # -----------------------------
+            echo "🔍 Checking DATABASE_URL..."
+
+            if [ -z "$DATABASE_URL" ]; then
+              echo "❌ DATABASE_URL is EMPTY"
               exit 1
             fi
 
+            echo "✅ DATABASE_URL is set"
+            echo "$DATABASE_URL" | cut -c1-60
+
+            # -----------------------------
+            # 🔍 DB CONNECTION TEST
+            # -----------------------------
+            echo "🔍 Testing DB connection..."
+
+            if ! command -v psql &> /dev/null; then
+              sudo apt-get update
+              sudo apt-get install -y postgresql-client
+            fi
+
+            if ! psql "$DATABASE_URL" -c '\q'; then
+              echo "❌ Cannot connect to DB"
+              exit 1
+            fi
+
+            echo "✅ DB connection OK"
+
+            # -----------------------------
+            # MIGRATIONS
+            # -----------------------------
+            echo "🗄️ Running migrations..."
+            DEBUG=* npx medusa db:migrate
+
+            # -----------------------------
+            # START NEW INSTANCE
+            # -----------------------------
             echo "🚀 Starting NEW instance (temp)..."
             pm2 start ./node_modules/.bin/medusa \
               --name medusa-temp \
@@ -128,13 +159,9 @@ jobs:
 
             echo "🔁 Switching to new version..."
 
-            # Stop old AFTER new is healthy
             pm2 delete medusa || true
-
-            # Rename temp → main
             pm2 restart medusa-temp --name medusa
 
-            # Switch symlink
             ln -sfn $NEW_RELEASE $CURRENT
 
             pm2 save
@@ -142,4 +169,4 @@ jobs:
             echo "🧹 Cleaning old releases..."
             ls -dt $RELEASES/* | tail -n +4 | xargs rm -rf || true
 
-            echo "✅ Deploy complete (zero downtime)"
+            echo "✅ Deploy complete"
