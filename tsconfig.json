@@ -18,18 +18,23 @@
     "jsx": "react-jsx",
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "checkJs": false
+    "checkJs": false,
   },
   "ts-node": {
-    "swc": true
+    "swc": true,
   },
-  "include": ["**/*", ".medusa/types/*"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "medusa-config.ts",
+    "env.d.ts", // Add this line
+  ],
   "exclude": [
     "**/__tests__",
     "**/__fixtures__",
     "node_modules",
     ".medusa/server",
     ".medusa/admin",
-    ".cache"
-  ]
+    ".cache",
+  ],
 }
