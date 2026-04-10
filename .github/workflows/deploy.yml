@@ -27,10 +27,12 @@ jobs:
 
       - name: Verify build output
         run: |
-          if [ ! -f ".medusa/server/main.js" ]; then
-            echo "Build output missing — aborting"
+          if [ ! -d ".medusa/server" ]; then
+            echo "❌ .medusa/server directory missing — build failed"
             exit 1
           fi
+          echo "✅ Build output looks good"
+          ls -la .medusa/server
 
       # Bundle includes yarn.lock so the server install is fully deterministic
       - name: Create bundle
@@ -65,7 +67,7 @@ jobs:
             NEW_RELEASE=$RELEASES/$TS
             SERVER_DIR=$NEW_RELEASE/.medusa/server
 
-            # ── Preserve the previous release path for rollback ──────────────
+            # ── Preserve previous release path for rollback ───────────────────
             PREV_RELEASE=$(readlink -f "$CURRENT" 2>/dev/null || true)
 
             rollback() {
@@ -80,10 +82,8 @@ jobs:
             }
             trap rollback ERR
 
-            # ── Prepare release directory ─────────────────────────────────────
-            mkdir -p "$RELEASES"
-            mkdir -p "$NEW_RELEASE"
-
+            # ── Extract ───────────────────────────────────────────────────────
+            mkdir -p "$RELEASES" "$NEW_RELEASE"
             echo "📦 Extracting bundle..."
             tar -xzf "$BASE/build.tar.gz" -C "$NEW_RELEASE"
             rm "$BASE/build.tar.gz"
@@ -94,13 +94,12 @@ jobs:
             sudo corepack enable
             yarn install --frozen-lockfile --production
 
-            # ── Write env file (never echo secrets into the log) ─────────────
+            # ── Write env file securely ───────────────────────────────────────
             echo "⚙️  Writing env..."
-            # Write without any shell expansion of the secret content
             printf '%s' "${{ secrets.PROD_ENV_FILE }}" > .env.production
             chmod 600 .env.production
 
-            # Load env for the remaining steps in this block
+            # Load env for migration step
             set -a
             source .env.production
             set +a
@@ -111,41 +110,41 @@ jobs:
             echo "🗄️  Running migrations..."
             npx medusa db:migrate --execute-safe-links
 
-            # ── Start a canary process for health check ───────────────────────
+            # ── Start canary process ──────────────────────────────────────────
+            # Medusa v2 has no main.js — the entry point is the medusa CLI
             echo "🚀 Starting canary process..."
             pm2 delete medusa-temp 2>/dev/null || true
-            pm2 start main.js \
+            pm2 start npx \
               --name medusa-temp \
-              --env production
+              --env production \
+              -- medusa start
 
-            # ── Retry health check (10 attempts × 5 s = 50 s window) ─────────
+            # ── Health check with retry (10 × 5 s = 50 s window) ─────────────
             echo "🧪 Waiting for health check..."
-            ATTEMPTS=10
-            for i in $(seq 1 $ATTEMPTS); do
+            for i in $(seq 1 10); do
               if curl -sf http://localhost:9000/health > /dev/null; then
                 echo "✅ Health check passed (attempt $i)"
                 break
               fi
-              if [ "$i" -eq "$ATTEMPTS" ]; then
-                echo "❌ Health check failed after $ATTEMPTS attempts"
+              if [ "$i" -eq 10 ]; then
+                echo "❌ Health check failed after 10 attempts"
                 pm2 logs medusa-temp --lines 150 --nostream
-                exit 1   # triggers rollback trap
+                exit 1
               fi
-              echo "   Attempt $i/$ATTEMPTS — retrying in 5 s..."
+              echo "   Attempt $i/10 — retrying in 5 s..."
               sleep 5
             done
 
             # ── Zero-downtime swap ────────────────────────────────────────────
             echo "🔁 Swapping to new release..."
-            # reload keeps existing connections alive during the swap
-            pm2 reload medusa-temp --update-env
-            pm2 rename medusa-temp medusa 2>/dev/null || \
-              pm2 reload medusa --update-env   # already named medusa from a prior deploy
-
+            if pm2 describe medusa > /dev/null 2>&1; then
+              pm2 delete medusa
+            fi
+            pm2 restart medusa-temp --name medusa
             ln -sfn "$NEW_RELEASE" "$CURRENT"
             pm2 save
 
-            # ── Prune old releases (keep the last 3) ─────────────────────────
+            # ── Prune old releases (keep last 3) ──────────────────────────────
             echo "🧹 Pruning old releases..."
             ls -dt "$RELEASES"/* | tail -n +4 | xargs rm -rf || true
 
