@@ -97,8 +97,8 @@ jobs:
 
             echo "⚙️ Writing env..."
             cat << 'EOF' > .env
-${{ secrets.PROD_ENV_FILE }}
-EOF
+            ${{ secrets.PROD_ENV_FILE }}
+            EOF
 
             echo "🌍 Loading env..."
             export NODE_ENV=production
