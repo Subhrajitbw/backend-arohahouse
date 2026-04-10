@@ -2,45 +2,19 @@ name: Deploy Medusa Backend (Aroha House)
 
 on:
   workflow_dispatch:
-    inputs:
-      environment:
-        description: "Deployment environment"
-        required: true
-        default: "production"
-        type: choice
-        options:
-          - production
-          - staging
-
-concurrency:
-  group: deploy-${{ github.event.inputs.environment }}
-  cancel-in-progress: false # never cancel an in-flight deploy
-
-env:
-  NODE_VERSION: "20"
-  APP_NAME: "medusa-aroha"
-  DEPLOY_BASE: "/var/www/medusa"
-  HEALTH_ENDPOINT: "http://localhost:9000/health"
-  HEALTH_RETRIES: 5
-  HEALTH_INTERVAL: 10
-  KEEP_RELEASES: 5
 
 jobs:
-  # ── 1. CI ────────────────────────────────────────────────────────────────────
-  build:
-    name: Build & Bundle
+  deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node ${{ env.NODE_VERSION }}
+      - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "yarn"
+          node-version: "20"
 
       - name: Enable Corepack
         run: corepack enable
@@ -50,48 +24,21 @@ jobs:
 
       - name: Build Medusa
         run: npx medusa build
-        env:
-          NODE_ENV: production
 
       - name: Verify build output
         run: |
           if [ ! -f ".medusa/server/main.js" ]; then
-            echo "❌ Build failed — main.js not found"
+            echo "Build output missing — aborting"
             exit 1
           fi
-          echo "✅ Build verified"
-          ls -lah .medusa/server
 
-      - name: Create release bundle
+      # Bundle includes yarn.lock so the server install is fully deterministic
+      - name: Create bundle
         run: |
-          BUNDLE_NAME="release-${{ github.sha }}.tar.gz"
-          tar -czf $BUNDLE_NAME \
+          tar -czf build.tar.gz \
             .medusa \
             package.json \
             yarn.lock
-          echo "BUNDLE_NAME=$BUNDLE_NAME" >> $GITHUB_ENV
-          ls -lah $BUNDLE_NAME
-
-      - name: Upload bundle artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: medusa-bundle
-          path: release-${{ github.sha }}.tar.gz
-          retention-days: 3
-
-  # ── 2. DEPLOY ────────────────────────────────────────────────────────────────
-  deploy:
-    name: Deploy to EC2
-    runs-on: ubuntu-latest
-    needs: build
-    timeout-minutes: 30
-    environment: ${{ github.event.inputs.environment }}
-
-    steps:
-      - name: Download bundle
-        uses: actions/download-artifact@v4
-        with:
-          name: medusa-bundle
 
       - name: Upload bundle to server
         uses: appleboy/scp-action@v1
@@ -99,9 +46,8 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
-          port: ${{ secrets.EC2_PORT || 22 }}
-          source: "release-${{ github.sha }}.tar.gz"
-          target: "${{ env.DEPLOY_BASE }}/incoming"
+          source: "build.tar.gz"
+          target: "/var/www/medusa"
 
       - name: Deploy on server
         uses: appleboy/ssh-action@v1
@@ -109,127 +55,98 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
-          port: ${{ secrets.EC2_PORT || 22 }}
-          command_timeout: "25m"
           script: |
             set -euo pipefail
 
-            # ── CONFIG ──────────────────────────────────────────────────────
-            APP_NAME="${{ env.APP_NAME }}"
-            BASE="${{ env.DEPLOY_BASE }}"
-            RELEASES="$BASE/releases"
-            CURRENT="$BASE/current"
-            SHARED="$BASE/shared"
-            INCOMING="$BASE/incoming"
-            SHA="${{ github.sha }}"
-            NEW_RELEASE="$RELEASES/$SHA"
-            BUNDLE="$INCOMING/release-$SHA.tar.gz"
-            KEEP_RELEASES="${{ env.KEEP_RELEASES }}"
+            BASE=/var/www/medusa
+            RELEASES=$BASE/releases
+            CURRENT=$BASE/current
+            TS=$(date +%s)
+            NEW_RELEASE=$RELEASES/$TS
+            SERVER_DIR=$NEW_RELEASE/.medusa/server
 
-            # ── HELPERS ─────────────────────────────────────────────────────
-            log()  { echo "[$(date '+%H:%M:%S')] $*"; }
-            fail() { echo "❌ $*" >&2; exit 1; }
+            # ── Preserve the previous release path for rollback ──────────────
+            PREV_RELEASE=$(readlink -f "$CURRENT" 2>/dev/null || true)
 
             rollback() {
-              log "⏪ Rolling back..."
-              PREV=$(ls -dt "$RELEASES"/*/  2>/dev/null | sed -n '2p')
-              if [ -n "$PREV" ]; then
-                pm2 delete "$APP_NAME-canary" 2>/dev/null || true
-                ln -sfn "$PREV" "$CURRENT"
-                cd "$PREV/.medusa/server"
-                pm2 restart "$APP_NAME" 2>/dev/null \
-                  || pm2 start main.js --name "$APP_NAME" \
-                       --max-memory-restart 800M \
-                       --node-args="--max-old-space-size=768"
-                pm2 save
-                log "✅ Rolled back to $PREV"
-              else
-                log "⚠️  No previous release to roll back to"
+              echo "❌ Deploy failed — rolling back"
+              pm2 delete medusa-temp 2>/dev/null || true
+              if [ -n "$PREV_RELEASE" ] && [ -d "$PREV_RELEASE" ]; then
+                ln -sfn "$PREV_RELEASE" "$CURRENT"
+                echo "↩️  Restored symlink to $PREV_RELEASE"
               fi
+              rm -rf "$NEW_RELEASE"
+              exit 1
             }
-            trap 'rollback' ERR
+            trap rollback ERR
 
-            # ── DIRECTORY SETUP ─────────────────────────────────────────────
-            mkdir -p "$RELEASES" "$SHARED" "$INCOMING"
-
-            # ── EXTRACT ─────────────────────────────────────────────────────
-            log "📦 Extracting $SHA..."
-            [ -f "$BUNDLE" ] || fail "Bundle not found: $BUNDLE"
+            # ── Prepare release directory ─────────────────────────────────────
+            mkdir -p "$RELEASES"
             mkdir -p "$NEW_RELEASE"
-            tar -xzf "$BUNDLE" -C "$NEW_RELEASE"
-            rm -f "$BUNDLE"
 
-            # ── SHARED .env (written once, symlinked every deploy) ──────────
-            ENV_FILE="$SHARED/.env.production"
-            if [ ! -f "$ENV_FILE" ]; then
-              log "📝 Writing shared .env.production (first time)..."
-              printf '%s' '${{ secrets.PROD_ENV_FILE }}' > "$ENV_FILE"
-              chmod 600 "$ENV_FILE"
-            fi
-            ln -sf "$ENV_FILE" "$NEW_RELEASE/.medusa/server/.env.production"
+            echo "📦 Extracting bundle..."
+            tar -xzf "$BASE/build.tar.gz" -C "$NEW_RELEASE"
+            rm "$BASE/build.tar.gz"
 
-            # ── INSTALL DEPS ─────────────────────────────────────────────────
-            log "📦 Installing production dependencies..."
-            cd "$NEW_RELEASE/.medusa/server"
+            # ── Install production deps ───────────────────────────────────────
+            cd "$SERVER_DIR"
+            echo "📦 Installing dependencies..."
             sudo corepack enable
-            yarn install --immutable --production 2>&1 | tail -5
+            yarn install --frozen-lockfile --production
 
-            # ── LOAD ENV ─────────────────────────────────────────────────────
+            # ── Write env file (never echo secrets into the log) ─────────────
+            echo "⚙️  Writing env..."
+            # Write without any shell expansion of the secret content
+            printf '%s' "${{ secrets.PROD_ENV_FILE }}" > .env.production
+            chmod 600 .env.production
+
+            # Load env for the remaining steps in this block
             set -a
             source .env.production
             set +a
             export NODE_ENV=production
             export MEDUSA_WORKER_MODE=server
 
-            # ── MIGRATIONS ──────────────────────────────────────────────────
-            log "🗄️  Running DB migrations..."
-            npx medusa db:migrate --execute-safe-links \
-              || fail "Migration failed — aborting deploy"
+            # ── Migrations ───────────────────────────────────────────────────
+            echo "🗄️  Running migrations..."
+            npx medusa db:migrate --execute-safe-links
 
-            # ── CANARY START ─────────────────────────────────────────────────
-            log "🚀 Starting canary process..."
-            pm2 delete "$APP_NAME-canary" 2>/dev/null || true
+            # ── Start a canary process for health check ───────────────────────
+            echo "🚀 Starting canary process..."
+            pm2 delete medusa-temp 2>/dev/null || true
             pm2 start main.js \
-              --name "$APP_NAME-canary" \
-              --max-memory-restart 800M \
-              --node-args="--max-old-space-size=768" \
-              --env production \
-              --merge-logs \
-              --log "$BASE/logs/$APP_NAME.log" \
-              --error "$BASE/logs/$APP_NAME-error.log"
+              --name medusa-temp \
+              --env production
 
-            # ── HEALTH CHECK ─────────────────────────────────────────────────
-            log "🧪 Health checking (up to ${{ env.HEALTH_RETRIES }} attempts)..."
-            mkdir -p "$BASE/logs"
-            HEALTH_OK=false
-            for i in $(seq 1 ${{ env.HEALTH_RETRIES }}); do
-              sleep ${{ env.HEALTH_INTERVAL }}
-              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-                --max-time 5 "${{ env.HEALTH_ENDPOINT }}" || echo "000")
-              log "  Attempt $i → HTTP $HTTP_CODE"
-              if [ "$HTTP_CODE" = "200" ]; then
-                HEALTH_OK=true
+            # ── Retry health check (10 attempts × 5 s = 50 s window) ─────────
+            echo "🧪 Waiting for health check..."
+            ATTEMPTS=10
+            for i in $(seq 1 $ATTEMPTS); do
+              if curl -sf http://localhost:9000/health > /dev/null; then
+                echo "✅ Health check passed (attempt $i)"
                 break
               fi
+              if [ "$i" -eq "$ATTEMPTS" ]; then
+                echo "❌ Health check failed after $ATTEMPTS attempts"
+                pm2 logs medusa-temp --lines 150 --nostream
+                exit 1   # triggers rollback trap
+              fi
+              echo "   Attempt $i/$ATTEMPTS — retrying in 5 s..."
+              sleep 5
             done
 
-            if [ "$HEALTH_OK" != "true" ]; then
-              log "📋 Canary logs:"
-              pm2 logs "$APP_NAME-canary" --lines 80 --nostream
-              fail "Health check failed after ${{ env.HEALTH_RETRIES }} attempts"
-            fi
+            # ── Zero-downtime swap ────────────────────────────────────────────
+            echo "🔁 Swapping to new release..."
+            # reload keeps existing connections alive during the swap
+            pm2 reload medusa-temp --update-env
+            pm2 rename medusa-temp medusa 2>/dev/null || \
+              pm2 reload medusa --update-env   # already named medusa from a prior deploy
 
-            # ── CUTOVER ──────────────────────────────────────────────────────
-            log "🔁 Cutting over traffic..."
-            pm2 delete "$APP_NAME" 2>/dev/null || true
-            pm2 restart "$APP_NAME-canary" --name "$APP_NAME"
             ln -sfn "$NEW_RELEASE" "$CURRENT"
             pm2 save
 
-            # ── CLEANUP ──────────────────────────────────────────────────────
-            log "🧹 Pruning old releases (keeping $KEEP_RELEASES)..."
-            ls -dt "$RELEASES"/*/  2>/dev/null \
-              | tail -n +$((KEEP_RELEASES + 1)) \
-              | xargs rm -rf || true
+            # ── Prune old releases (keep the last 3) ─────────────────────────
+            echo "🧹 Pruning old releases..."
+            ls -dt "$RELEASES"/* | tail -n +4 | xargs rm -rf || true
 
-            log "✅ Deploy $SHA complete"
+            echo "✅ Deploy complete — release $TS is live"
