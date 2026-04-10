@@ -10,35 +10,39 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Checkout
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 2. Use Node 20 (IMPORTANT)
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "20"
 
+      # 3. Enable Corepack (for Yarn)
       - name: Enable Corepack
         run: corepack enable
 
+      # 4. Install dependencies
       - name: Install local deps
         run: yarn install --immutable
 
+      # 5. Build Medusa (creates .medusa/server)
       - name: Build Medusa
-        run: npx medusa build
+        run: |
+          npx medusa build
+          ls -la .medusa/server
 
-      # Optimized Bundle: NO node_modules
+      # 6. Create bundle (NO node_modules)
       - name: Create bundle
         run: |
           tar -czf build.tar.gz \
             .medusa \
-            src \
             package.json \
-            yarn.lock \
-            medusa-config.ts \
-            tsconfig.json \
-            .yarnrc.yml
+            yarn.lock
 
+      # 7. Upload to EC2
       - name: Upload to server
         uses: appleboy/scp-action@v1.2.0
         with:
@@ -48,6 +52,7 @@ jobs:
           source: "build.tar.gz"
           target: "/var/www/medusa"
 
+      # 8. Deploy on server
       - name: Deploy on server
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -57,67 +62,70 @@ jobs:
           script: |
             set -e
 
-            # 1. Path Setup
             BASE=/var/www/medusa
             RELEASES=$BASE/releases
             CURRENT=$BASE/current
+
             mkdir -p $RELEASES
 
             TS=$(date +%s)
             NEW_RELEASE=$RELEASES/$TS
             mkdir -p $NEW_RELEASE
 
-            # 2. Extract and Cleanup
+            # Extract build
             tar -xzf $BASE/build.tar.gz -C $NEW_RELEASE
             rm $BASE/build.tar.gz
 
-            cd $NEW_RELEASE
+            # 🔥 MOVE INTO BUILT SERVER
+            cd $NEW_RELEASE/.medusa/server
 
-            # 3. Server-side Install (MUCH faster than SCP)
-            echo "📦 Installing dependencies on EC2..."
+            echo "📦 Installing production deps..."
             sudo corepack enable
-            yarn install --immutable
+            yarn install --production
 
-            # 4. Environment Setup
-            echo "⚙️ Writing production env..."
-            printf "%s\n" "${{ secrets.PROD_ENV_FILE }}" > .env
+            # ENV setup
+            echo "⚙️ Writing env..."
+            printf "%s\n" "${{ secrets.PROD_ENV_FILE }}" > .env.production
 
             export NODE_ENV=production
-            set -a && source .env && set +a
+            export MEDUSA_WORKER_MODE=server
 
-            # 5. Database Migrations & Link Sync
-            echo "🗄️ Running Medusa v2 migrations..."
+            set -a
+            source .env.production
+            set +a
+
+            # DB migration
+            echo "🗄️ Running migrations..."
             npx medusa db:migrate --execute-safe-links
 
-            # 6. PM2 Process Management
-            echo "🚀 Starting new instance..."
-            # Delete old temp if it exists
+            # PM2 start
+            echo "🚀 Starting server..."
+
             pm2 delete medusa-temp || true
 
-            # Start from the NEW_RELEASE root
-            pm2 start "npx medusa start" --name medusa-temp --env production
+            pm2 start main.js --name medusa-temp
 
-            echo "🧪 Waiting 15s for boot..."
-            sleep 15
+            echo "⏳ Waiting for boot..."
+            sleep 20
 
-            # 7. Health Check
+            # Health check
             if ! curl -f http://localhost:9000/health; then
-              echo "❌ Health check failed. Rolling back..."
-              pm2 logs medusa-temp --lines 50
+              echo "❌ Health failed"
+              pm2 logs medusa-temp --lines 100
               pm2 delete medusa-temp
               exit 1
             fi
 
-            # 8. Zero-Downtime Atomic Switch
+            # Switch (zero downtime)
             echo "🔁 Switching versions..."
             pm2 delete medusa || true
             pm2 restart medusa-temp --name medusa
 
-            # Update Symlink
+            # Symlink update
             ln -sfn $NEW_RELEASE $CURRENT
             pm2 save
 
-            # 9. Cleanup old releases (Keep last 3)
+            # Cleanup (keep last 3)
             ls -dt $RELEASES/* | tail -n +4 | xargs rm -rf || true
 
-            echo "✅ DEPLOY SUCCESS FOR AROHA HOUSE"
+            echo "✅ DEPLOY SUCCESS"
