@@ -1,4 +1,4 @@
-name: Deploy Medusa Backend to EC2
+name: Deploy Medusa Backend (Zero Downtime)
 
 on:
   workflow_dispatch:
@@ -8,45 +8,47 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1) Checkout repo
-      - name: Checkout code
-        uses: actions/checkout@v4
+      # -----------------------------
+      # 1. Checkout
+      # -----------------------------
+      - uses: actions/checkout@v4
 
-      # 2) Setup Node.js
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      # -----------------------------
+      # 2. Node + Yarn
+      # -----------------------------
+      - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "20"
 
-      # 3) Enable Corepack -> uses yarn@4.7.0 from packageManager
-      - name: Enable Corepack (Yarn Berry)
-        run: corepack enable
+      - name: Enable Yarn
+        run: |
+          corepack enable
+          corepack prepare yarn@4.7.0 --activate
 
-      # 4) Install dependencies with Yarn 4
-      - name: Install dependencies
-        run: yarn install --immutable
+      # -----------------------------
+      # 3. Install + Build
+      # -----------------------------
+      - run: yarn install --immutable
 
-      # 5) Build Medusa app (backend + admin)
-      - name: Build Medusa app
+      - name: Build
         run: yarn build
         env:
           NODE_ENV: production
 
-      # 6) Package built artifacts (include src + TS config + tsconfig)
-      - name: Create build bundle
+      # -----------------------------
+      # 4. Bundle
+      # -----------------------------
+      - name: Create bundle
         run: |
           tar -czf build.tar.gz \
             .medusa \
-            src \
-            package.json \
-            yarn.lock \
-            medusa-config.ts \
-            tsconfig.json \
-            .yarnrc.yml
+            node_modules \
+            package.json
 
-      # 7) Copy bundle to EC2
-      - name: Copy bundle to EC2
-        uses: appleboy/scp-action@master
+      # -----------------------------
+      # 5. Upload
+      # -----------------------------
+      - uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
@@ -54,9 +56,10 @@ jobs:
           source: "build.tar.gz"
           target: "/var/www/medusa"
 
-      # 8) Deploy on EC2
-      - name: Deploy on EC2
-        uses: appleboy/ssh-action@master
+      # -----------------------------
+      # 6. Deploy (ZERO DOWNTIME)
+      # -----------------------------
+      - uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
@@ -64,59 +67,66 @@ jobs:
           script: |
             set -e
 
-            cd /var/www/medusa
+            BASE=/var/www/medusa
+            RELEASES=$BASE/releases
+            CURRENT=$BASE/current
 
-            # Clean old configs / src so nothing stale sticks around
-            rm -f medusa-config.js medusa-config.cjs medusa-config.mjs
-            rm -rf src
+            mkdir -p $RELEASES
+            cd $BASE
 
-            # Extract new build
-            if [ -f build.tar.gz ]; then
-              tar -xzf build.tar.gz
-              rm build.tar.gz
-            fi
+            echo "📦 Creating new release..."
+            TS=$(date +%s)
+            NEW_RELEASE=$RELEASES/$TS
+            mkdir -p $NEW_RELEASE
 
-            # Write environment file from secret into root
-            cat << 'EOF' > .env.production
+            tar -xzf build.tar.gz -C $NEW_RELEASE
+            rm build.tar.gz
+
+            cd $NEW_RELEASE
+
+            echo "⚙️ Writing env..."
+            cat << 'EOF' > .env
             ${{ secrets.PROD_ENV_FILE }}
             EOF
 
-            # If a global Yarn 1 exists, remove it so Corepack can control yarn
-            if command -v yarn >/dev/null 2>&1; then
-              YVER=$(yarn -v || echo "0")
-              case "$YVER" in
-                1.*)
-                  echo "Removing global Yarn 1.x so Corepack can take over..."
-                  sudo rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg || true
-                  ;;
-              esac
+            echo "🌍 Loading env..."
+            export NODE_ENV=production
+            export $(grep -v '^#' .env | xargs)
+
+            echo "🧪 Running migrations (SAFE CHECK)..."
+            if ! npx medusa db:migrate; then
+              echo "❌ Migration failed. Aborting deploy."
+              exit 1
             fi
 
-            # Enable Corepack on EC2 (Yarn 4)
-            corepack enable
+            echo "🚀 Starting NEW instance (temp)..."
+            pm2 start ./node_modules/.bin/medusa \
+              --name medusa-temp \
+              -- start
 
-            # Install deps in project root (ts-node, tsconfig-paths, medusa CLI)
-            yarn install --immutable
+            sleep 5
 
-            # Run DB migrations using Medusa CLI (uses medusa-config.ts + src/modules/*)
-            yarn medusa db:migrate --execute-safe-links
-
-            # Go into built server app
-            cd .medusa/server
-
-            # Copy env file into built server folder as well
-            cp /var/www/medusa/.env.production .env.production
-
-            # Install prod deps for built app
-            yarn install --immutable
-
-            # Start / reload with PM2 from .medusa/server
-            if pm2 describe medusa >/dev/null 2>&1; then
-              echo "Reloading existing PM2 process 'medusa'"
-              pm2 reload medusa
-            else
-              echo "Starting new PM2 process 'medusa'"
-              pm2 start yarn --name "medusa" -- start
+            echo "🧪 Health check..."
+            if ! curl -f http://localhost:9000/health; then
+              echo "❌ Health check failed. Rolling back..."
+              pm2 delete medusa-temp
+              exit 1
             fi
+
+            echo "🔁 Swapping to new version..."
+
+            # Stop old process AFTER new is healthy
+            pm2 delete medusa || true
+
+            # Rename temp → main
+            pm2 restart medusa-temp --name medusa
+
+            # Update symlink ONLY after success
+            ln -sfn $NEW_RELEASE $CURRENT
 
             pm2 save
+
+            echo "🧹 Cleaning old releases..."
+            ls -dt $RELEASES/* | tail -n +4 | xargs rm -rf || true
+
+            echo "✅ Zero-downtime deploy complete"
