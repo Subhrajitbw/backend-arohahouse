@@ -76,9 +76,9 @@ jobs:
 
             cd $NEW_RELEASE/.medusa/server
 
-            echo "📦 Installing production deps..."
+            echo "📦 Installing deps..."
             sudo corepack enable
-            yarn install --production
+            yarn install
 
             echo "⚙️ Setting env..."
             printf "%s\n" "${{ secrets.PROD_ENV_FILE }}" > .env.production
