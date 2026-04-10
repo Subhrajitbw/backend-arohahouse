@@ -1,40 +1,38 @@
 name: Deploy Medusa Backend (Aroha House)
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch: # 🔥 MANUAL TRIGGER ONLY
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout
+      # 1. Checkout repo
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. Use Node 20 (IMPORTANT)
+      # 2. Node 20 (stable for Medusa)
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      # 3. Enable Corepack (for Yarn)
+      # 3. Enable Yarn
       - name: Enable Corepack
         run: corepack enable
 
-      # 4. Install dependencies
-      - name: Install local deps
+      # 4. Install deps
+      - name: Install dependencies
         run: yarn install --immutable
 
-      # 5. Build Medusa (creates .medusa/server)
+      # 5. Build Medusa
       - name: Build Medusa
         run: |
           npx medusa build
           ls -la .medusa/server
 
-      # 6. Create bundle (NO node_modules)
+      # 6. Create bundle
       - name: Create bundle
         run: |
           tar -czf build.tar.gz \
@@ -44,7 +42,7 @@ jobs:
 
       # 7. Upload to EC2
       - name: Upload to server
-        uses: appleboy/scp-action@v1.2.0
+        uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
@@ -52,9 +50,9 @@ jobs:
           source: "build.tar.gz"
           target: "/var/www/medusa"
 
-      # 8. Deploy on server
+      # 8. Deploy via SSH
       - name: Deploy on server
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
@@ -72,19 +70,17 @@ jobs:
             NEW_RELEASE=$RELEASES/$TS
             mkdir -p $NEW_RELEASE
 
-            # Extract build
+            echo "📦 Extracting..."
             tar -xzf $BASE/build.tar.gz -C $NEW_RELEASE
             rm $BASE/build.tar.gz
 
-            # 🔥 MOVE INTO BUILT SERVER
             cd $NEW_RELEASE/.medusa/server
 
             echo "📦 Installing production deps..."
             sudo corepack enable
             yarn install --production
 
-            # ENV setup
-            echo "⚙️ Writing env..."
+            echo "⚙️ Setting env..."
             printf "%s\n" "${{ secrets.PROD_ENV_FILE }}" > .env.production
 
             export NODE_ENV=production
@@ -94,21 +90,16 @@ jobs:
             source .env.production
             set +a
 
-            # DB migration
             echo "🗄️ Running migrations..."
             npx medusa db:migrate --execute-safe-links
 
-            # PM2 start
             echo "🚀 Starting server..."
-
             pm2 delete medusa-temp || true
-
             pm2 start main.js --name medusa-temp
 
-            echo "⏳ Waiting for boot..."
             sleep 20
 
-            # Health check
+            echo "🧪 Health check..."
             if ! curl -f http://localhost:9000/health; then
               echo "❌ Health failed"
               pm2 logs medusa-temp --lines 100
@@ -116,16 +107,14 @@ jobs:
               exit 1
             fi
 
-            # Switch (zero downtime)
-            echo "🔁 Switching versions..."
+            echo "🔁 Switching..."
             pm2 delete medusa || true
             pm2 restart medusa-temp --name medusa
 
-            # Symlink update
             ln -sfn $NEW_RELEASE $CURRENT
             pm2 save
 
-            # Cleanup (keep last 3)
+            echo "🧹 Cleaning old releases..."
             ls -dt $RELEASES/* | tail -n +4 | xargs rm -rf || true
 
             echo "✅ DEPLOY SUCCESS"
