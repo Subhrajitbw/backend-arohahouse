@@ -48,9 +48,11 @@ jobs:
         run: |
           tar -czf build.tar.gz \
             .medusa \
+            src \
             node_modules \
             package.json \
-            medusa-config.ts
+            medusa-config.ts \
+            tsconfig.json
 
       # -----------------------------
       # 7. Upload

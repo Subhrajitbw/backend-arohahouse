@@ -1,11 +1,13 @@
 import { loadEnv, defineConfig } from "@medusajs/framework/utils";
 
-// Load env based on NODE_ENV (we will ensure NODE_ENV=production in deploy)
 loadEnv(process.env.NODE_ENV || "development", process.cwd());
 
 /**
- * SAFE DEFAULTS (DEV ONLY FALLBACKS)
+ * LOCAL DEV SAFE DEFAULTS
+ * Do NOT rely on dynamic localhost detection.
+ * Be explicit to avoid session + CORS failures.
  */
+
 const adminCors =
   process.env.ADMIN_CORS || "http://localhost:9000,http://127.0.0.1:9000";
 
@@ -18,32 +20,28 @@ const storeCors =
 export default defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL!,
-
     databaseDriverOptions: {
       ssl: { rejectUnauthorized: false },
       connection: { ssl: { rejectUnauthorized: false } },
     },
-
     redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
-
     http: {
-      storeCors,
-      adminCors,
-      authCors,
+      storeCors: process.env.STORE_CORS!,
+      adminCors: process.env.ADMIN_CORS!,
+      authCors: process.env.AUTH_CORS!,
       jwtSecret: process.env.JWT_SECRET || "supersecret",
       cookieSecret: process.env.COOKIE_SECRET || "supersecret",
     },
-
     cookieOptions: {
-      secure: false,
-      sameSite: "lax",
+      secure: false, // allow cookies over HTTP
+      sameSite: "lax", // relaxed sending in local dev
       httpOnly: true,
-    },
+    }, // production uses Medusa defaults
   },
 
   modules: [
     /**
-     * FILE STORAGE (S3 / R2)
+     * FILE STORAGE (R2 / S3)
      */
     {
       resolve: "@medusajs/medusa/file",
@@ -70,13 +68,13 @@ export default defineConfig({
     },
 
     /**
-     * ✅ CUSTOM MODULES (FIXED — NO src/)
+     * CUSTOM MODULES
      */
     {
-      resolve: "./modules/product-media",
+      resolve: "./src/modules/product-media",
     },
     {
-      resolve: "./modules/fashion",
+      resolve: "./src/modules/fashion",
     },
 
     /**
@@ -87,7 +85,7 @@ export default defineConfig({
       options: {
         providers: [
           {
-            resolve: "./modules/resend",
+            resolve: "./src/modules/resend",
             id: "resend",
             options: {
               channels: ["email"],
@@ -100,13 +98,14 @@ export default defineConfig({
     },
 
     /**
-     * SANITY SYNC
+     * SANITY SYNC MODULE
      */
     {
-      resolve: "./modules/sanity",
+      resolve: "./src/modules/sanity",
       options: {
         api_token: process.env.SANITY_API_TOKEN,
         project_id: process.env.SANITY_PROJECT_ID,
+        // Use a fixed version string
         api_version: "2023-01-01",
         dataset: "production",
         studio_url:
@@ -118,10 +117,10 @@ export default defineConfig({
     },
 
     /**
-     * SEARCH
+     * SEARCH MODULES
      */
     {
-      resolve: "./modules/algolia",
+      resolve: "./src/modules/algolia",
       options: {
         appId: process.env.ALGOLIA_APP_ID!,
         apiKey: process.env.ALGOLIA_API_KEY!,
@@ -129,7 +128,7 @@ export default defineConfig({
       },
     },
     {
-      resolve: "./modules/meilisearch",
+      resolve: "./src/modules/meilisearch",
       options: {
         host: process.env.MEILISEARCH_HOST!,
         apiKey: process.env.MEILISEARCH_API_KEY!,
