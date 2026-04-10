@@ -1,7 +1,9 @@
-name: Deploy Medusa Backend (Production + Zero Downtime)
+name: Deploy Medusa Backend (Aroha House)
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
   deploy:
@@ -11,53 +13,46 @@ jobs:
       # -----------------------------
       # 1. Checkout
       # -----------------------------
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       # -----------------------------
-      # 2. Node setup
+      # 2. Setup Node
       # -----------------------------
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
 
       # -----------------------------
-      # 3. Yarn setup
+      # 3. Install dependencies
       # -----------------------------
-      - name: Enable Corepack
-        run: |
-          corepack enable
-          corepack prepare yarn@4.7.0 --activate
+      - name: Install deps
+        run: npm install
 
       # -----------------------------
-      # 4. Install deps
-      # -----------------------------
-      - run: yarn install --immutable
-
-      # -----------------------------
-      # 5. Build Medusa
+      # 4. Build Medusa (IMPORTANT)
       # -----------------------------
       - name: Build
-        run: yarn build
-        env:
-          NODE_ENV: production
+        run: npx medusa build
 
       # -----------------------------
-      # 6. Create bundle (CRITICAL FIX)
+      # 5. Create bundle
       # -----------------------------
       - name: Create bundle
         run: |
           tar -czf build.tar.gz \
             .medusa \
-            src \
+            dist \
             node_modules \
             package.json \
-            medusa-config.ts \
-            tsconfig.json
+            medusa-config.ts
 
       # -----------------------------
-      # 7. Upload
+      # 6. Upload to EC2
       # -----------------------------
-      - uses: appleboy/scp-action@master
+      - name: Upload to server
+        uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
@@ -66,9 +61,10 @@ jobs:
           target: "/var/www/medusa"
 
       # -----------------------------
-      # 8. Deploy
+      # 7. Deploy via SSH
       # -----------------------------
-      - uses: appleboy/ssh-action@master
+      - name: Deploy on server
+        uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
@@ -94,87 +90,57 @@ jobs:
             cd $NEW_RELEASE
 
             # -----------------------------
-            # ENV SETUP (SAFE)
+            # ENV SETUP
             # -----------------------------
             echo "⚙️ Writing env..."
             printf "%s\n" "${{ secrets.PROD_ENV_FILE }}" > .env
 
-            echo "🌍 Loading env..."
             export NODE_ENV=production
-
-            # Remove bad lines (your previous issue)
-            grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env > .env.clean || true
-            mv .env.clean .env || true
 
             set -a
             source .env
             set +a
 
             # -----------------------------
-            # ENV VALIDATION
-            # -----------------------------
-            echo "🔍 Checking env..."
-            : "${DATABASE_URL:?❌ DATABASE_URL missing}"
-
-            echo "✅ DATABASE_URL OK"
-            echo "$DATABASE_URL" | cut -c1-60
-
-            # -----------------------------
-            # DB CONNECTION TEST
-            # -----------------------------
-            echo "🔍 Testing DB connection..."
-
-            if ! command -v psql &> /dev/null; then
-              sudo apt-get update
-              sudo apt-get install -y postgresql-client
-            fi
-
-            if ! psql "$DATABASE_URL" -c '\q'; then
-              echo "❌ DB connection failed"
-              exit 1
-            fi
-
-            echo "✅ DB connection OK"
-
-            # -----------------------------
-            # MIGRATIONS
+            # DB MIGRATION
             # -----------------------------
             echo "🗄️ Running migrations..."
             npx medusa db:migrate --execute-safe-links
 
-                    # -----------------------------
-                    # START NEW INSTANCE
-                    # -----------------------------
-                    echo "🚀 Starting NEW instance..."
-                    pm2 start ./node_modules/.bin/medusa \
-                      --name medusa-temp \
-                      -- start
+            # -----------------------------
+            # START NEW INSTANCE
+            # -----------------------------
+            echo "🚀 Starting NEW instance..."
+            pm2 start "cd .medusa/server && npx medusa start" \
+              --name medusa-temp
 
-                    sleep 6
+            sleep 8
 
-                    echo "🧪 Health check..."
-                    if ! curl -f http://localhost:9000/health; then
-                      echo "❌ Health failed → rollback"
-                      pm2 delete medusa-temp
-                      exit 1
-                    fi
+            # -----------------------------
+            # HEALTH CHECK
+            # -----------------------------
+            echo "🧪 Health check..."
+            if ! curl -f http://localhost:9000/health; then
+              echo "❌ Health failed → rollback"
+              pm2 delete medusa-temp
+              exit 1
+            fi
 
-                    # -----------------------------
-                    # SWITCH (ZERO DOWNTIME)
-                    # -----------------------------
-                    echo "🔁 Switching..."
+            # -----------------------------
+            # ZERO DOWNTIME SWITCH
+            # -----------------------------
+            echo "🔁 Switching..."
 
-                    pm2 delete medusa || true
-                    pm2 restart medusa-temp --name medusa
+            pm2 delete medusa || true
+            pm2 restart medusa-temp --name medusa
 
-                    ln -sfn $NEW_RELEASE $CURRENT
+            ln -sfn $NEW_RELEASE $CURRENT
+            pm2 save
 
-                    pm2 save
+            # -----------------------------
+            # CLEAN OLD RELEASES
+            # -----------------------------
+            echo "🧹 Cleaning old releases..."
+            ls -dt $RELEASES/* | tail -n +4 | xargs rm -rf || true
 
-                    # -----------------------------
-                    # CLEANUP
-                    # -----------------------------
-                    echo "🧹 Cleaning old releases..."
-                    ls -dt $RELEASES/* | tail -n +4 | xargs rm -rf || true
-
-                    echo "✅ DEPLOY SUCCESS"
+            echo "✅ DEPLOY SUCCESS"

@@ -160,6 +160,7 @@ export default defineConfig({
    * ADMIN CONFIG
    */
   admin: {
+    disable: true,
     vite: (config) => {
       return {
         ...config,
