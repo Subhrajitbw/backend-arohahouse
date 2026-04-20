@@ -41,3 +41,4 @@ Caddyfile
 localhost+1.pem
 src/.DS_Store
 src/admin/lib/sdk.ts
+src/admin/lib/sdk.ts

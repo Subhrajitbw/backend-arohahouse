@@ -23,12 +23,9 @@ export const syncCollectionsStep = createStep(
 
     const upsertMap: UpsertRecord[] = []
 
-    // Skip if no collection IDs
-    if (!input.collection_ids || input.collection_ids.length === 0) {
-      return new StepResponse({ total: 0 }, [])
-    }
-
-    const filters = { id: input.collection_ids }
+    const filters = input.collection_ids && input.collection_ids.length > 0 
+      ? { id: input.collection_ids } 
+      : {}
 
     try {
       // Fetch just the targeted collections

@@ -27,12 +27,9 @@ export const syncProductTypesStep = createStep(
 
     const upsertMap: UpsertRecord[] = []
 
-    // Skip if no IDs provided
-    if (!input.type_ids || input.type_ids.length === 0) {
-      return new StepResponse({ total: 0 }, [])
-    }
-
-    const filters = { id: input.type_ids }
+    const filters = input.type_ids && input.type_ids.length > 0 
+      ? { id: input.type_ids } 
+      : {}
 
     try {
       const { data: types = [] } = await query.graph({

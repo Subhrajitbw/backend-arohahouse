@@ -50,5 +50,27 @@ declare namespace NodeJS {
     ALGOLIA_APP_ID?: string;
     ALGOLIA_PRODUCT_INDEX_NAME?: string;
     STRIPE_API_KEY?: string;
+
+    // Social Auth
+    GOOGLE_CLIENT_ID?: string;
+    GOOGLE_CLIENT_SECRET?: string;
+    GOOGLE_CALLBACK_URL?: string;
+
+    FACEBOOK_CLIENT_ID?: string;
+    FACEBOOK_CLIENT_SECRET?: string;
+    FACEBOOK_CALLBACK_URL?: string;
+
+    LINKEDIN_CLIENT_ID?: string;
+    LINKEDIN_CLIENT_SECRET?: string;
+    LINKEDIN_CALLBACK_URL?: string;
+
+    REDDIT_CLIENT_ID?: string;
+    REDDIT_CLIENT_SECRET?: string;
+    REDDIT_CALLBACK_URL?: string;
+
+    PINTEREST_CLIENT_ID?: string;
+    PINTEREST_CLIENT_SECRET?: string;
+    PINTEREST_CALLBACK_URL?: string;
+    DISABLE_MEDUSA_ADMIN?: string
   }
 }
