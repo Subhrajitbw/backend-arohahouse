@@ -18,8 +18,19 @@ export default defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL!,
     databaseDriverOptions: {
-      ssl: { rejectUnauthorized: false },
-      connection: { ssl: { rejectUnauthorized: false } },
+      connection: {
+        // Essential: AWS RDS requires this object structure for SSL
+        ssl: {
+          rejectUnauthorized: false
+        },
+      },
+      // Optimization: Prevents the "Pool is full" crash on t2.micro
+      pool: {
+        min: 0, // Set to 0 to allow the pool to clear connections when idle
+        max: 5,
+        idleTimeoutMillis: 30000,
+        acquireTimeoutMillis: 60000,
+      },
     },
 
     redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
