@@ -17,11 +17,9 @@ const storeCors = process.env.STORE_CORS || "http://localhost:5173"
 export default defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL!,
-
     databaseDriverOptions: {
-      connection: {
-        ssl: { rejectUnauthorized: false },
-      },
+      ssl: { rejectUnauthorized: false },
+      connection: { ssl: { rejectUnauthorized: false } },
     },
 
     redisUrl: process.env.REDIS_URL || "redis://localhost:6379",

@@ -14,31 +14,22 @@
     "sourceMap": false,
     "outDir": "./.medusa/server",
     "rootDir": "./",
+    "baseUrl": ".",
     "jsx": "react-jsx",
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "checkJs": false,
-    "baseUrl": ".", 
-    "paths": {
-      "@/*": ["./src/*"],
-      "src/*": ["./src/*"] 
-    }
+    "checkJs": false
   },
   "ts-node": {
-    "swc": true,
+    "swc": true
   },
-  "include": [
-    "src/**/*.ts",
-    "src/**/*.tsx",
-    "medusa-config.ts",
-    "env.d.ts", // Add this line
-  ],
+  "include": ["**/*", ".medusa/types/*"],
   "exclude": [
     "**/__tests__",
     "**/__fixtures__",
     "node_modules",
     ".medusa/server",
     ".medusa/admin",
-    ".cache",
-  ],
+    ".cache"
+  ]
 }

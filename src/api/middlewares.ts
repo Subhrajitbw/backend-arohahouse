@@ -26,7 +26,7 @@ export default defineMiddlewares({
     // DOES NOT OVERRIDE CORE ADMIN ROUTES
     // -----------------------------
     {
-      matcher: "/custom/(.*)",
+      matcher: "/custom/*",
       method: ["POST", "PUT"],
       bodyParser: {
         sizeLimit: "20mb",
