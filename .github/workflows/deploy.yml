@@ -8,31 +8,43 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # -----------------------------
       # 1) Checkout repo
+      # -----------------------------
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # -----------------------------
       # 2) Setup Node.js
+      # -----------------------------
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
+      # -----------------------------
       # 3) Enable Corepack
+      # -----------------------------
       - name: Enable Corepack (Yarn Berry)
         run: corepack enable
 
+      # -----------------------------
       # 4) Install dependencies
+      # -----------------------------
       - name: Install dependencies
         run: yarn install --immutable
 
-      # 5) Build Medusa app
-      - name: Build Medusa app
-        run: yarn build
+      # -----------------------------
+      # 5) Build backend ONLY (IMPORTANT)
+      # -----------------------------
+      - name: Build Medusa backend only
+        run: yarn medusa build --no-admin
         env:
           NODE_ENV: production
 
+      # -----------------------------
       # 6) Package build
+      # -----------------------------
       - name: Create build bundle
         run: |
           tar -czf build.tar.gz \
@@ -44,7 +56,9 @@ jobs:
             tsconfig.json \
             .yarnrc.yml
 
+      # -----------------------------
       # 7) Copy to EC2
+      # -----------------------------
       - name: Copy bundle to EC2
         uses: appleboy/scp-action@master
         with:
@@ -54,7 +68,9 @@ jobs:
           source: "build.tar.gz"
           target: "/var/www/medusa"
 
+      # -----------------------------
       # 8) Deploy on EC2
+      # -----------------------------
       - name: Deploy on EC2
         uses: appleboy/ssh-action@master
         with:
@@ -72,7 +88,6 @@ jobs:
             # BACKUP (ROLLBACK SAFETY)
             # -----------------------------
             if [ -d ".medusa" ]; then
-              echo "📦 Creating backup..."
               rm -rf .medusa_backup || true
               cp -r .medusa .medusa_backup
             fi
@@ -115,13 +130,11 @@ jobs:
             # -----------------------------
             # INSTALL ROOT DEPS
             # -----------------------------
-            echo "📦 Installing root deps..."
             yarn install --immutable
 
             # -----------------------------
             # RUN MIGRATIONS
             # -----------------------------
-            echo "🗄 Running migrations..."
             yarn medusa db:migrate --execute-safe-links
 
             # -----------------------------
@@ -131,26 +144,22 @@ jobs:
 
             cp /var/www/medusa/.env.production .env.production
 
-            echo "📦 Installing server deps..."
             yarn install --immutable
 
             # -----------------------------
-            # MEMORY LIMIT (CRITICAL FOR t2.micro)
+            # MEMORY LIMIT (t2.micro)
             # -----------------------------
             export NODE_OPTIONS="--max-old-space-size=512"
 
             # -----------------------------
-            # HEALTH CHECK BEFORE DEPLOY
+            # HEALTH CHECK
             # -----------------------------
-            echo "🧪 Running health check..."
-
             PORT=9001 yarn start &
             TEMP_PID=$!
 
             sleep 8
 
             if curl -f http://localhost:9001/health; then
-              echo "✅ Health check passed"
               kill $TEMP_PID || true
             else
               echo "❌ Health check failed, rolling back..."
@@ -171,24 +180,21 @@ jobs:
             # PM2 START / RELOAD
             # -----------------------------
             if pm2 describe medusa >/dev/null 2>&1; then
-              echo "🔄 Reloading PM2..."
               pm2 reload medusa
             else
-              echo "🆕 Starting PM2..."
               pm2 start yarn --name "medusa" -- start
             fi
 
             pm2 save
 
             # -----------------------------
-            # MEMORY AUTO-RESTART
+            # MEMORY AUTO RESTART
             # -----------------------------
             pm2 restart medusa --max-memory-restart 450M
 
             # -----------------------------
-            # CLEANUP (DISK SAFETY)
+            # CLEANUP
             # -----------------------------
-            echo "🧹 Cleaning up..."
             rm -rf ~/.cache/yarn || true
             rm -rf node_modules/.cache || true
             pm2 flush
