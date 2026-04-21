@@ -29,8 +29,6 @@ jobs:
 
       - name: Create Slim Bundle
         run: |
-          # Package the built server and essential configs
-          # Excludes root node_modules to keep the transfer lightweight
           tar -czf build.tar.gz \
             .medusa/server \
             package.json \
@@ -55,38 +53,40 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
+            # 1. Environment & Path Config
             export NODE_OPTIONS="--max-old-space-size=512"
-            
             BASE_DIR="/var/www/medusa"
             TIMESTAMP=$(date +%s)
             RELEASE_DIR="$BASE_DIR/releases/$TIMESTAMP"
             STAGING_PORT=9001
             
-            # 1. Prepare Release Directory
+            # 2. Prepare Release Directory
             mkdir -p $RELEASE_DIR
             mkdir -p $BASE_DIR/shared/node_modules
             tar -xzf $BASE_DIR/tmp/build.tar.gz -C $RELEASE_DIR
             rm $BASE_DIR/tmp/build.tar.gz
 
-            # 2. Setup Environment & Dependency Symlink
+            # 3. Setup Environment & Dependency Symlink
             echo "${{ secrets.PROD_ENV_FILE }}" > $RELEASE_DIR/.env
             ln -s $BASE_DIR/shared/node_modules $RELEASE_DIR/node_modules
 
-            # 3. Optimized Production Install
+            # 4. COREPACK & YARN BERRY FIX
             cd $RELEASE_DIR
-            corepack enable
+            sudo corepack enable
+            corepack prepare yarn@4.7.0 --activate
+            
+            # Optimized Production Install (using the project-defined yarn version)
             yarn install --production --immutable
 
-            # 4. Run Medusa v2 Migrations
+            # 5. Run Medusa v2 Migrations
             npx medusa db:migrate
 
-            # 5. Start Staging Instance in PM2
-            # This verifies the NEW code works without touching the LIVE site
+            # 6. Start Staging Instance in PM2
             cd .medusa/server
             pm2 delete medusa-staging >/dev/null 2>&1 || true
             PORT=$STAGING_PORT pm2 start "node dist/index.js" --name "medusa-staging" --no-autorestart
 
-            # 6. Intelligent Health Check Loop
+            # 7. Intelligent Health Check Loop
             MAX_RETRIES=20
             RETRY_COUNT=0
             SUCCESS=false
@@ -94,11 +94,11 @@ jobs:
             echo "⏳ Monitoring PM2 process and Health Endpoint..."
 
             while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-              # Verify PM2 status via JSON output
+              # Check if process is online via PM2 JSON
               PM2_STATUS=$(pm2 jlist | jq -r '.[] | select(.name=="medusa-staging") | .pm2_env.status')
               
               if [ "$PM2_STATUS" = "online" ]; then
-                # Check if Medusa is responding on the staging port
+                # Check for 200 OK from Medusa
                 HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$STAGING_PORT/health || echo "000")
                 
                 if [ "$HTTP_STATUS" -eq "200" ]; then
@@ -107,7 +107,7 @@ jobs:
                   break
                 fi
               elif [ "$PM2_STATUS" = "errored" ] || [ "$PM2_STATUS" = "stopped" ]; then
-                echo "❌ PM2 process entered '$PM2_STATUS' state."
+                echo "❌ PM2 process failed to start. Current status: $PM2_STATUS"
                 break
               fi
 
@@ -123,26 +123,25 @@ jobs:
               exit 1
             fi
 
-            # 7. Atomic Swap: Update the 'current' symlink
+            # 8. Atomic Swap
             pm2 delete medusa-staging
             ln -sfn $RELEASE_DIR $BASE_DIR/current
 
-            # 8. Reload Production PM2 (Zero Downtime)
+            # 9. Reload Production PM2 (Zero Downtime)
             cd $BASE_DIR/current/.medusa/server
             if pm2 describe medusa >/dev/null 2>&1; then
               pm2 reload medusa --update-env
             else
-              # Initial start if this is the first run
               pm2 start "node dist/index.js" --name "medusa"
             fi
             pm2 save
 
-            # 9. Storage & Cache Optimization
-            # Delete everything except the 3 most recent releases
+            # 10. Storage & Cache Optimization
             cd $BASE_DIR/releases
             ls -1t | tail -n +4 | xargs rm -rf || true
             
-            # Clear Yarn cache to free up hundreds of MBs on small EBS volumes
+            # Using the localized yarn version to clean cache
+            cd $BASE_DIR/current
             yarn cache clean
             
-            echo "🚀 Medusa v2 Deployment Successful!"
+            echo "🚀 Medusa v2 Deployment Successful (v$TIMESTAMP)!"
