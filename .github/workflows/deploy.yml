@@ -14,13 +14,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: 'yarn'
+          # ❌ cache removed (breaks Yarn 4 + Corepack)
 
       - name: Enable Corepack
         run: |
-            corepack enable
-            corepack prepare yarn@4.7.0 --activate
-            yarn -v
+          corepack enable
+          corepack prepare yarn@4.7.0 --activate
+          yarn -v
 
       - name: Install Dependencies
         run: yarn install --immutable
@@ -56,40 +56,32 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
-            # 1. Environment & Path Config
             export NODE_OPTIONS="--max-old-space-size=512"
             BASE_DIR="/var/www/medusa"
             TIMESTAMP=$(date +%s)
             RELEASE_DIR="$BASE_DIR/releases/$TIMESTAMP"
             STAGING_PORT=9001
             
-            # 2. Prepare Release Directory
             mkdir -p $RELEASE_DIR
             mkdir -p $BASE_DIR/shared/node_modules
             tar -xzf $BASE_DIR/tmp/build.tar.gz -C $RELEASE_DIR
             rm $BASE_DIR/tmp/build.tar.gz
 
-            # 3. Setup Environment & Dependency Symlink
             echo "${{ secrets.PROD_ENV_FILE }}" > $RELEASE_DIR/.env
             ln -s $BASE_DIR/shared/node_modules $RELEASE_DIR/node_modules
 
-            # 4. COREPACK & YARN BERRY FIX
             cd $RELEASE_DIR
             sudo corepack enable
             corepack prepare yarn@4.7.0 --activate
             
-            # Optimized Production Install (using the project-defined yarn version)
             yarn install --production --immutable
 
-            # 5. Run Medusa v2 Migrations
             npx medusa db:migrate
 
-            # 6. Start Staging Instance in PM2
             cd .medusa/server
             pm2 delete medusa-staging >/dev/null 2>&1 || true
             PORT=$STAGING_PORT pm2 start "node dist/index.js" --name "medusa-staging" --no-autorestart
 
-            # 7. Intelligent Health Check Loop
             MAX_RETRIES=20
             RETRY_COUNT=0
             SUCCESS=false
@@ -97,20 +89,18 @@ jobs:
             echo "⏳ Monitoring PM2 process and Health Endpoint..."
 
             while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-              # Check if process is online via PM2 JSON
               PM2_STATUS=$(pm2 jlist | jq -r '.[] | select(.name=="medusa-staging") | .pm2_env.status')
               
               if [ "$PM2_STATUS" = "online" ]; then
-                # Check for 200 OK from Medusa
                 HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$STAGING_PORT/health || echo "000")
                 
                 if [ "$HTTP_STATUS" -eq "200" ]; then
-                  echo "✅ Staging Health Check Passed (Status 200)!"
+                  echo "✅ Staging Health Check Passed!"
                   SUCCESS=true
                   break
                 fi
               elif [ "$PM2_STATUS" = "errored" ] || [ "$PM2_STATUS" = "stopped" ]; then
-                echo "❌ PM2 process failed to start. Current status: $PM2_STATUS"
+                echo "❌ PM2 failed: $PM2_STATUS"
                 break
               fi
 
@@ -120,17 +110,15 @@ jobs:
             done
 
             if [ "$SUCCESS" = false ]; then
-              echo "❌ Deployment Failed: New release is unstable."
+              echo "❌ Deployment Failed"
               pm2 logs medusa-staging --lines 50 --nostream
               pm2 delete medusa-staging
               exit 1
             fi
 
-            # 8. Atomic Swap
             pm2 delete medusa-staging
             ln -sfn $RELEASE_DIR $BASE_DIR/current
 
-            # 9. Reload Production PM2 (Zero Downtime)
             cd $BASE_DIR/current/.medusa/server
             if pm2 describe medusa >/dev/null 2>&1; then
               pm2 reload medusa --update-env
@@ -139,11 +127,9 @@ jobs:
             fi
             pm2 save
 
-            # 10. Storage & Cache Optimization
             cd $BASE_DIR/releases
             ls -1t | tail -n +4 | xargs rm -rf || true
             
-            # Using the localized yarn version to clean cache
             cd $BASE_DIR/current
             yarn cache clean
             
