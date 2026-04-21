@@ -1,4 +1,4 @@
-name: Deploy Medusa Backend to EC2
+name: Deploy Medusa v2 (Atomic & Optimized)
 
 on:
   workflow_dispatch:
@@ -6,72 +6,47 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      # -----------------------------
-      # 1) Checkout repo
-      # -----------------------------
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # -----------------------------
-      # 2) Setup Node.js
-      # -----------------------------
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: 'yarn'
 
-      # -----------------------------
-      # 3) Enable Corepack
-      # -----------------------------
-      - name: Enable Corepack (Yarn Berry)
+      - name: Enable Corepack
         run: corepack enable
 
-      # -----------------------------
-      # 4) Install dependencies
-      # -----------------------------
-      - name: Install dependencies
+      - name: Install Dependencies
         run: yarn install --immutable
 
-      # -----------------------------
-      # 5) Build backend ONLY (IMPORTANT)
-      # -----------------------------
-      - name: Build Medusa backend only
-        run: yarn medusa build --no-admin
+      - name: Build Medusa
+        run: yarn build
         env:
           NODE_ENV: production
 
-      # -----------------------------
-      # 6) Package build
-      # -----------------------------
-      - name: Create build bundle
+      - name: Create Slim Bundle
+        # We package the built server and config. Exclude node_modules to keep the transfer tiny.
         run: |
           tar -czf build.tar.gz \
-            .medusa \
-            src \
+            .medusa/server \
             package.json \
-            yarn.lock \
             medusa-config.ts \
-            tsconfig.json \
+            yarn.lock \
             .yarnrc.yml
 
-      # -----------------------------
-      # 7) Copy to EC2
-      # -----------------------------
-      - name: Copy bundle to EC2
+      - name: Upload to EC2
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           source: "build.tar.gz"
-          target: "/var/www/medusa"
+          target: "/var/www/medusa/tmp"
 
-      # -----------------------------
-      # 8) Deploy on EC2
-      # -----------------------------
-      - name: Deploy on EC2
+      - name: Atomic Deploy & Health Check
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -79,124 +54,70 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
-
-            cd /var/www/medusa
-
-            echo "🚀 Starting deployment..."
-
-            # -----------------------------
-            # BACKUP (ROLLBACK SAFETY)
-            # -----------------------------
-            if [ -d ".medusa" ]; then
-              rm -rf .medusa_backup || true
-              cp -r .medusa .medusa_backup
-            fi
-
-            # -----------------------------
-            # CLEAN OLD FILES
-            # -----------------------------
-            rm -f medusa-config.js medusa-config.cjs medusa-config.mjs
-            rm -rf src
-
-            # -----------------------------
-            # EXTRACT BUILD
-            # -----------------------------
-            if [ -f build.tar.gz ]; then
-              tar -xzf build.tar.gz
-              rm build.tar.gz
-            fi
-
-            # -----------------------------
-            # ENV FILE
-            # -----------------------------
-            cat << 'EOF' > .env.production
-            ${{ secrets.PROD_ENV_FILE }}
-            EOF
-
-            # -----------------------------
-            # FIX YARN VERSION
-            # -----------------------------
-            if command -v yarn >/dev/null 2>&1; then
-              YVER=$(yarn -v || echo "0")
-              case "$YVER" in
-                1.*)
-                  sudo rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg || true
-                  ;;
-              esac
-            fi
-
-            corepack enable
-
-            # -----------------------------
-            # INSTALL ROOT DEPS
-            # -----------------------------
-            yarn install --immutable
-
-            # -----------------------------
-            # RUN MIGRATIONS
-            # -----------------------------
-            yarn medusa db:migrate --execute-safe-links
-
-            # -----------------------------
-            # MOVE TO BUILT SERVER
-            # -----------------------------
-            cd .medusa/server
-
-            cp /var/www/medusa/.env.production .env.production
-
-            yarn install --immutable
-
-            # -----------------------------
-            # MEMORY LIMIT (t2.micro)
-            # -----------------------------
             export NODE_OPTIONS="--max-old-space-size=512"
+            
+            BASE_DIR="/var/www/medusa"
+            TIMESTAMP=$(date +%s)
+            RELEASE_DIR="$BASE_DIR/releases/$TIMESTAMP"
+            
+            mkdir -p $RELEASE_DIR
+            mkdir -p $BASE_DIR/shared/node_modules
 
-            # -----------------------------
-            # HEALTH CHECK
-            # -----------------------------
-            PORT=9001 yarn start &
-            TEMP_PID=$!
+            # 1. Extract
+            tar -xzf $BASE_DIR/tmp/build.tar.gz -C $RELEASE_DIR
+            rm $BASE_DIR/tmp/build.tar.gz
 
-            sleep 8
+            # 2. Environment & Symlink Shared Cache
+            echo "${{ secrets.PROD_ENV_FILE }}" > $RELEASE_DIR/.env
+            ln -s $BASE_DIR/shared/node_modules $RELEASE_DIR/node_modules
 
-            if curl -f http://localhost:9001/health; then
-              kill $TEMP_PID || true
+            # 3. Optimized Install
+            cd $RELEASE_DIR
+            corepack enable
+            yarn install --production --immutable
+
+            # 4. Database Migrations (Medusa v2)
+            npx medusa db:migrate
+
+            # 5. Zero-Downtime Health Check
+            # Start a temporary instance on an alternate port to verify build integrity
+            cd .medusa/server
+            PORT=9999 yarn start > health_log.txt 2>&1 &
+            HEALTH_PID=$!
+            
+            echo "Waiting for health check..."
+            sleep 15 # Medusa v2 needs a moment to boot modules
+            
+            if curl -s http://localhost:9999/health | grep -q '"status":"ok"'; then
+               echo "✅ Health check passed!"
+               kill $HEALTH_PID || true
             else
-              echo "❌ Health check failed, rolling back..."
-
-              kill $TEMP_PID || true
-
-              cd /var/www/medusa
-              rm -rf .medusa
-              mv .medusa_backup .medusa
-
-              cd .medusa/server
-              pm2 reload medusa
-
-              exit 1
+               echo "❌ Health check failed! Logs:"
+               cat health_log.txt
+               kill $HEALTH_PID || true
+               rm -rf $RELEASE_DIR
+               exit 1
             fi
 
-            # -----------------------------
-            # PM2 START / RELOAD
-            # -----------------------------
+            # 6. Atomic Swap
+            ln -sfn $RELEASE_DIR $BASE_DIR/current
+
+            # 7. PM2 Reload (Zero Downtime)
+            # Pointing PM2 to the symlink means we don't have to update the PM2 config daily
+            cd $BASE_DIR/current/.medusa/server
             if pm2 describe medusa >/dev/null 2>&1; then
-              pm2 reload medusa
+              pm2 reload medusa --update-env
             else
-              pm2 start yarn --name "medusa" -- start
+              pm2 start "node dist/index.js" --name "medusa" --exp-backoff-restart-delay 100
             fi
-
             pm2 save
 
-            # -----------------------------
-            # MEMORY AUTO RESTART
-            # -----------------------------
-            pm2 restart medusa --max-memory-restart 450M
-
-            # -----------------------------
-            # CLEANUP
-            # -----------------------------
-            rm -rf ~/.cache/yarn || true
-            rm -rf node_modules/.cache || true
-            pm2 flush
-
-            echo "✅ Deployment complete!"
+            # 8. Storage Optimization (Cleanup)
+            # Keep only last 3 versions
+            cd $BASE_DIR/releases
+            ls -1t | tail -n +4 | xargs rm -rf || true
+            
+            # Clean global yarn cache to free up GBs
+            yarn cache clean
+            
+            echo "🚀 Deployment of version $TIMESTAMP successful!"
