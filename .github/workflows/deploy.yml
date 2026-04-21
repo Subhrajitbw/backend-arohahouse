@@ -1,4 +1,4 @@
-name: Deploy Medusa v2 (Atomic & Optimized)
+name: Deploy Medusa Backend to EC2
 
 on:
   workflow_dispatch:
@@ -6,49 +6,56 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
+      # 1) Checkout repo
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 2) Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          # ❌ cache removed (breaks Yarn 4 + Corepack)
 
-      - name: Enable Corepack
-        run: |
-          corepack enable
-          corepack prepare yarn@4.7.0 --activate
-          yarn -v
+      # 3) Enable Corepack -> uses yarn@4.7.0 from packageManager
+      - name: Enable Corepack (Yarn Berry)
+        run: corepack enable
 
-      - name: Install Dependencies
+      # 4) Install dependencies with Yarn 4
+      - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Build Medusa
+      # 5) Build Medusa app (backend + admin)
+      - name: Build Medusa app
         run: yarn build
         env:
           NODE_ENV: production
 
-      - name: Create Slim Bundle
+      # 6) Package built artifacts (include src + TS config + tsconfig)
+      - name: Create build bundle
         run: |
           tar -czf build.tar.gz \
-            .medusa/server \
+            .medusa \
+            src \
             package.json \
-            medusa-config.ts \
             yarn.lock \
+            medusa-config.ts \
+            tsconfig.json \
             .yarnrc.yml
 
-      - name: Upload to EC2
+      # 7) Copy bundle to EC2
+      - name: Copy bundle to EC2
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           source: "build.tar.gz"
-          target: "/var/www/medusa/tmp"
+          target: "/var/www/medusa"
 
-      - name: Atomic Deploy & PM2 Health Check
+      # 8) Deploy on EC2
+      - name: Deploy on EC2
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -56,81 +63,60 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
-            export NODE_OPTIONS="--max-old-space-size=512"
-            BASE_DIR="/var/www/medusa"
-            TIMESTAMP=$(date +%s)
-            RELEASE_DIR="$BASE_DIR/releases/$TIMESTAMP"
-            STAGING_PORT=9001
-            
-            mkdir -p $RELEASE_DIR
-            mkdir -p $BASE_DIR/shared/node_modules
-            tar -xzf $BASE_DIR/tmp/build.tar.gz -C $RELEASE_DIR
-            rm $BASE_DIR/tmp/build.tar.gz
 
-            echo "${{ secrets.PROD_ENV_FILE }}" > $RELEASE_DIR/.env
-            ln -s $BASE_DIR/shared/node_modules $RELEASE_DIR/node_modules
+            cd /var/www/medusa
 
-            cd $RELEASE_DIR
-            sudo corepack enable
-            corepack prepare yarn@4.7.0 --activate
-            
+            # Clean old configs / src so nothing stale sticks around
+            rm -f medusa-config.js medusa-config.cjs medusa-config.mjs
+            rm -rf src
+
+            # Extract new build
+            if [ -f build.tar.gz ]; then
+              tar -xzf build.tar.gz
+              rm build.tar.gz
+            fi
+
+            # Write environment file from secret into root
+            cat << 'EOF' > .env.production
+            ${{ secrets.PROD_ENV_FILE }}
+            EOF
+
+            # If a global Yarn 1 exists, remove it so Corepack can control yarn
+            if command -v yarn >/dev/null 2>&1; then
+              YVER=$(yarn -v || echo "0")
+              case "$YVER" in
+                1.*)
+                  echo "Removing global Yarn 1.x so Corepack can take over..."
+                  sudo rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg || true
+                  ;;
+              esac
+            fi
+
+            # Enable Corepack on EC2 (Yarn 4)
+            corepack enable
+
+            # Install deps in project root (ts-node, tsconfig-paths, medusa CLI)
             yarn install --immutable
 
-            npx medusa db:migrate
+            # Run DB migrations using Medusa CLI (uses medusa-config.ts + src/modules/*)
+            yarn medusa db:migrate --execute-safe-links
 
+            # Go into built server app
             cd .medusa/server
-            pm2 delete medusa-staging >/dev/null 2>&1 || true
-            PORT=$STAGING_PORT pm2 start "node dist/index.js" --name "medusa-staging" --no-autorestart
 
-            MAX_RETRIES=20
-            RETRY_COUNT=0
-            SUCCESS=false
+            # Copy env file into built server folder as well
+            cp /var/www/medusa/.env.production .env.production
 
-            echo "⏳ Monitoring PM2 process and Health Endpoint..."
+            # Install prod deps for built app
+            yarn install --immutable
 
-            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-              PM2_STATUS=$(pm2 jlist | jq -r '.[] | select(.name=="medusa-staging") | .pm2_env.status')
-              
-              if [ "$PM2_STATUS" = "online" ]; then
-                HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$STAGING_PORT/health || echo "000")
-                
-                if [ "$HTTP_STATUS" -eq "200" ]; then
-                  echo "✅ Staging Health Check Passed!"
-                  SUCCESS=true
-                  break
-                fi
-              elif [ "$PM2_STATUS" = "errored" ] || [ "$PM2_STATUS" = "stopped" ]; then
-                echo "❌ PM2 failed: $PM2_STATUS"
-                break
-              fi
-
-              echo "Wait for boot... ($((RETRY_COUNT+1))/$MAX_RETRIES)"
-              RETRY_COUNT=$((RETRY_COUNT+1))
-              sleep 10
-            done
-
-            if [ "$SUCCESS" = false ]; then
-              echo "❌ Deployment Failed"
-              pm2 logs medusa-staging --lines 50 --nostream
-              pm2 delete medusa-staging
-              exit 1
-            fi
-
-            pm2 delete medusa-staging
-            ln -sfn $RELEASE_DIR $BASE_DIR/current
-
-            cd $BASE_DIR/current/.medusa/server
+            # Start / reload with PM2 from .medusa/server
             if pm2 describe medusa >/dev/null 2>&1; then
-              pm2 reload medusa --update-env
+              echo "Reloading existing PM2 process 'medusa'"
+              pm2 reload medusa
             else
-              pm2 start "node dist/index.js" --name "medusa"
+              echo "Starting new PM2 process 'medusa'"
+              pm2 start yarn --name "medusa" -- start
             fi
-            pm2 save
 
-            cd $BASE_DIR/releases
-            ls -1t | tail -n +4 | xargs rm -rf || true
-            
-            cd $BASE_DIR/current
-            yarn cache clean
-            
-            echo "🚀 Medusa v2 Deployment Successful (v$TIMESTAMP)!"
+            pm2 save
