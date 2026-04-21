@@ -1,40 +1,64 @@
-import { loadEnv, defineConfig } from "@medusajs/framework/utils";
+import { loadEnv, defineConfig } from "@medusajs/framework/utils"
 
-loadEnv(process.env.NODE_ENV || "development", process.cwd());
+loadEnv(process.env.NODE_ENV || "development", process.cwd())
 
-// Decoupled Admin support: allow the standalone admin (7001) and backend (9000)
+// -----------------------------
+// CORS CONFIG (IMPORTANT)
+// -----------------------------
 const adminCors =
-  process.env.ADMIN_CORS || "http://localhost:7001,http://localhost:9000";
+  process.env.ADMIN_CORS || "http://localhost:7001,http://localhost:9000"
+
 const authCors =
-  process.env.AUTH_CORS || "http://localhost:5173,http://localhost:7001,http://localhost:9000";
-const storeCors = process.env.STORE_CORS || "http://localhost:5173";
+  process.env.AUTH_CORS ||
+  "http://localhost:5173,http://localhost:7001,http://localhost:9000"
+
+const storeCors = process.env.STORE_CORS || "http://localhost:5173"
 
 export default defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL!,
+
     databaseDriverOptions: {
       connection: {
         ssl: { rejectUnauthorized: false },
       },
     },
+
     redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
+
+    // -----------------------------
+    // HTTP CONFIG
+    // -----------------------------
     http: {
       storeCors,
       adminCors,
       authCors,
+
       jwtSecret: process.env.JWT_SECRET || "supersecret",
       cookieSecret: process.env.COOKIE_SECRET || "supersecret",
     },
+
+    // -----------------------------
+    // COOKIE CONFIG (CROSS DOMAIN)
+    // -----------------------------
     cookieOptions: {
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       httpOnly: true,
     },
+
+    // -----------------------------
+    // WORKER MODE (LOW RAM SAFE)
+    // -----------------------------
+    workerMode: "server", // IMPORTANT for t2.micro
   },
 
+  // -----------------------------
+  // MODULES
+  // -----------------------------
   modules: [
     /**
-     * FILE STORAGE (Core Module)
+     * FILE STORAGE (R2 via S3)
      */
     {
       resolve: "@medusajs/medusa/file",
@@ -44,12 +68,12 @@ export default defineConfig({
             resolve: "@medusajs/medusa/file-s3",
             id: "s3",
             options: {
-              file_url: process.env.FILE_BASE_URL,
+              file_url: process.env.FILE_BASE_URL, // CDN URL
               access_key_id: process.env.S3_ACCESS_KEY_ID,
               secret_access_key: process.env.S3_SECRET_ACCESS_KEY,
               region: process.env.S3_REGION,
               bucket: process.env.S3_BUCKET,
-              endpoint: process.env.S3_ENDPOINT,
+              endpoint: process.env.S3_ENDPOINT, // R2 endpoint
             },
           },
         ],
@@ -57,7 +81,7 @@ export default defineConfig({
     },
 
     /**
-     * NOTIFICATIONS (Core Module)
+     * NOTIFICATIONS
      */
     {
       resolve: "@medusajs/medusa/notification",
@@ -81,6 +105,7 @@ export default defineConfig({
      */
     { resolve: "./src/modules/product-media" },
     { resolve: "./src/modules/fashion" },
+
     {
       resolve: "./src/modules/sanity",
       options: {
@@ -96,12 +121,12 @@ export default defineConfig({
     },
 
     /**
-     * SEARCH MODULES (Conditional injection to prevent build crashes)
+     * SEARCH (OPTIONAL)
      */
     ...(process.env.MEILISEARCH_HOST
       ? [
           {
-            resolve: "./src/modules/meilisearch", // Points to your custom meilisearch wrapper
+            resolve: "./src/modules/meilisearch",
             options: {
               host: process.env.MEILISEARCH_HOST,
               apiKey: process.env.MEILISEARCH_API_KEY,
@@ -113,7 +138,7 @@ export default defineConfig({
       : []),
 
     /**
-     * AUTH MODULE
+     * AUTH
      */
     {
       resolve: "@medusajs/medusa/auth",
@@ -129,51 +154,23 @@ export default defineConfig({
             options: {
               clientId: process.env.GOOGLE_CLIENT_ID,
               clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-              callbackUrl: "http://localhost:5173/oauth/callback",
+
+              // ✅ IMPORTANT: FIX FOR VERCEL ADMIN
+              callbackUrl:
+                process.env.GOOGLE_CALLBACK_URL ||
+                "https://admin.arohahouse.com/oauth/callback",
+
               scope: ["email", "profile", "openid"],
             },
           },
-          // {
-          //   resolve: "@medusajs/auth-facebook",
-          //   id: "facebook",
-          //   options: {
-          //     clientId: process.env.FACEBOOK_CLIENT_ID,
-          //     clientSecret: process.env.FACEBOOK_CLIENT_SECRET,
-          //     callbackUrl: `${process.env.MEDUSA_BACKEND_URL}/auth/customer/facebook/callback`,
-          //   },
-          // },
-          // {
-          //   resolve: "./src/modules/social-auth/linkedin-provider",
-          //   id: "linkedin",
-          //   options: {
-          //     clientId: process.env.LINKEDIN_CLIENT_ID,
-          //     clientSecret: process.env.LINKEDIN_CLIENT_SECRET,
-          //     callbackUrl: `${process.env.MEDUSA_BACKEND_URL}/auth/customer/linkedin/callback`,
-          //   },
-          // },
-          // {
-          //   resolve: "./src/modules/social-auth/reddit-provider",
-          //   id: "reddit",
-          //   options: {
-          //     clientId: process.env.REDDIT_CLIENT_ID,
-          //     clientSecret: process.env.REDDIT_CLIENT_SECRET,
-          //     callbackUrl: `${process.env.MEDUSA_BACKEND_URL}/auth/customer/reddit/callback`,
-          //   },
-          // },
-          // {
-          //   resolve: "./src/modules/social-auth/pinterest-provider",
-          //   id: "pinterest",
-          //   options: {
-          //     clientId: process.env.PINTEREST_CLIENT_ID,
-          //     clientSecret: process.env.PINTEREST_CLIENT_SECRET,
-          //     callbackUrl: `${process.env.MEDUSA_BACKEND_URL}/auth/customer/pinterest/callback`,
-          //   },
-          // },
         ],
       },
     },
   ],
 
+  // -----------------------------
+  // PLUGINS
+  // -----------------------------
   plugins: [
     { resolve: "@tsc_tech/medusa-plugin-product-seo", options: {} },
     { resolve: "@tsc_tech/medusa-plugin-product-variant-images", options: {} },
@@ -181,19 +178,30 @@ export default defineConfig({
     { resolve: "@agilo/medusa-analytics-plugin", options: {} },
   ],
 
+  // -----------------------------
+  // ADMIN CONFIG (CRITICAL SECTION)
+  // -----------------------------
   admin: {
-    disable: process.env.DISABLE_MEDUSA_ADMIN === "true", // Disabled on AWS, Enabled on Vercel/Local
+    // Disable admin on EC2 (since using Vercel)
+    disable: process.env.DISABLE_MEDUSA_ADMIN === "true",
+
+    // ✅ REQUIRED for Vercel admin → backend communication
+    backendUrl:
+      process.env.MEDUSA_BACKEND_URL || "http://localhost:9000",
+
+    // ✅ REAL upload limit (backend enforced)
+    maxUploadFileSize: 15 * 1024 * 1024,
+
     vite: (config: any) => {
       return {
         ...config,
-        server: {
-          ...(config.server || {}),
-        },
         define: {
           ...(config.define || {}),
-          __MAX_UPLOAD_FILE_SIZE__: JSON.stringify(15 * 1024 * 1024), // 15MB
+
+          // ✅ frontend limit (UX)
+          __MAX_UPLOAD_FILE_SIZE__: JSON.stringify(15 * 1024 * 1024),
         },
       }
     },
   },
-});
+})

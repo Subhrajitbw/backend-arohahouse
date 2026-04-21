@@ -2,15 +2,7 @@
   "trailingSlash": false,
   "rewrites": [
     {
-      "source": "/app/assets/(.*)",
-      "destination": "/assets/$1"
-    },
-    {
-      "source": "/app/(.*)",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/((?!api/).*)",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ]
