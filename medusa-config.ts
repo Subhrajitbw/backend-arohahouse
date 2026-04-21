@@ -191,12 +191,6 @@ export default defineConfig({
   // ADMIN CONFIG (CRITICAL SECTION)
   // -----------------------------
   admin: {
-    // Disable admin on EC2 (since using Vercel)
-    disable: process.env.DISABLE_MEDUSA_ADMIN === "true",
-
-    // ✅ REQUIRED for Vercel admin → backend communication
-    backendUrl:
-      process.env.MEDUSA_BACKEND_URL || "http://localhost:9000",
 
     // ✅ REAL upload limit (backend enforced)
     maxUploadFileSize: 15 * 1024 * 1024,
