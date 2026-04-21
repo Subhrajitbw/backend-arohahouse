@@ -38,7 +38,7 @@ jobs:
       # 5) Build backend ONLY (IMPORTANT)
       # -----------------------------
       - name: Build Medusa backend only
-        run: yarn medusa build --no-admin
+        run: npx medusa build 
         env:
           NODE_ENV: production
 
