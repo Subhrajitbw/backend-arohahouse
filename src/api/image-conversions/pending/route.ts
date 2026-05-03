@@ -1,21 +1,15 @@
 import { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 
-export const AUTHENTICATE = false   // IMPORTANT
+export const AUTHENTICATE = false
 
 const TOKEN_HEADER = "x-image-conversion-token"
 
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
-  console.log("ROUTE HIT")
-
   const logger = req.scope.resolve(ContainerRegistrationKeys.LOGGER)
-  logger.info("Image conversion route started")
-
+  
   const expectedToken = process.env.IMAGE_CONVERSION_TOKEN
   const providedToken = req.headers[TOKEN_HEADER]
-
-  logger.info("Expected token exists: " + Boolean(expectedToken))
-  logger.info("Provided token: " + providedToken)
 
   if (!expectedToken) {
     logger.error("IMAGE_CONVERSION_TOKEN missing")
@@ -23,7 +17,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   }
 
   if (providedToken !== expectedToken) {
-    logger.warn("Unauthorized request")
+    logger.warn("Unauthorized request to image-conversions/pending")
     return res.status(401).json({ error: "Unauthorized" })
   }
 
@@ -33,8 +27,6 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     entity: "product",
     fields: ["id", "thumbnail", "images.*"],
   })
-
-  logger.info(`Products fetched: ${products.length}`)
 
   res.json({ products })
 }

@@ -2,6 +2,8 @@ import { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import type { EntityManager } from "@mikro-orm/postgresql"
 import { z } from "zod"
 
+export const AUTHENTICATE = false
+
 export const ImageConversionCallbackSchema = z.object({
   product_id: z.string(),
   original_url: z.string().url(),
