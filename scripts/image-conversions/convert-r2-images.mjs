@@ -22,12 +22,16 @@ const requiredEnv = [
 ]
 
 const hasDispatchPayload = Boolean(process.env.GITHUB_EVENT_PATH)
-const requiredForPolling = requiredEnv.filter((key) => key !== "MEDUSA_PENDING_URL")
-const missing = (hasDispatchPayload ? requiredForPolling : requiredEnv).filter(
-  (key) => !process.env[key]
-)
+const isPollingMode = !hasDispatchPayload || process.env.GITHUB_EVENT_NAME !== "repository_dispatch"
+const missing = requiredEnv.filter((key) => {
+  // MEDUSA_PENDING_URL is only required for polling (schedule/workflow_dispatch/manual)
+  if (key === "MEDUSA_PENDING_URL" && !isPollingMode) return false
+  return !process.env[key]
+})
+
 if (missing.length) {
-  console.error(`Missing required env vars: ${missing.join(", ")}`)
+  console.error(`Missing required environment variables: ${missing.join(", ")}`)
+  console.error("Please ensure these are set in your GitHub Actions Secrets.")
   process.exit(1)
 }
 
@@ -213,13 +217,21 @@ const readDispatchPayload = async () => {
   if (!process.env.GITHUB_EVENT_PATH) {
     return null
   }
+  
+  // We only support automated payloads via repository_dispatch
   if (process.env.GITHUB_EVENT_NAME !== "repository_dispatch") {
     return null
   }
-  const fs = await import("node:fs/promises")
-  const raw = await fs.readFile(process.env.GITHUB_EVENT_PATH, "utf-8")
-  const payload = JSON.parse(raw)
-  return payload?.client_payload || null
+
+  try {
+    const fs = await import("node:fs/promises")
+    const raw = await fs.readFile(process.env.GITHUB_EVENT_PATH, "utf-8")
+    const payload = JSON.parse(raw)
+    return payload?.client_payload || null
+  } catch (error) {
+    console.error("Failed to read dispatch payload:", error)
+    return null
+  }
 }
 
 const callCallback = async (payload) => {
@@ -375,10 +387,10 @@ const main = async () => {
   }
 
   if (!MEDUSA_PENDING_URL) {
-    console.log(
-      "No repository_dispatch payload and MEDUSA_PENDING_URL is missing. Exiting."
-    )
-    return
+    console.error("CRITICAL ERROR: MEDUSA_PENDING_URL is not set.")
+    console.error("This is required for polling mode (scheduled runs or manual triggers).")
+    console.error("Please add MEDUSA_PENDING_URL to your GitHub Repository Secrets.")
+    process.exit(1)
   }
 
   let processed = 0
