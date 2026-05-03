@@ -12,7 +12,7 @@ import {
   DeleteCategoryImagesSchema,
 } from "./admin/categories/[category_id]/images/batch/route"
 
-import { ImageConversionCallbackSchema } from "./admin/image-conversions/callback/route"
+import { ImageConversionCallbackSchema } from "./image-conversions/callback/route"
 
 export default defineMiddlewares({
   routes: [
@@ -63,7 +63,7 @@ export default defineMiddlewares({
     },
 
     {
-      matcher: "/admin/image-conversions/callback",
+      matcher: "/image-conversions/callback",
       method: ["POST"],
       middlewares: [validateAndTransformBody(ImageConversionCallbackSchema)],
     },
