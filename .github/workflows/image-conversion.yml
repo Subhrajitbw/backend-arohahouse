@@ -32,6 +32,7 @@ jobs:
           R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
           R2_RAW_PREFIX: ${{ secrets.R2_RAW_PREFIX }}
           R2_WEBP_PREFIX: ${{ secrets.R2_WEBP_PREFIX }}
+          R2_AVIF_PREFIX: ${{ secrets.R2_AVIF_PREFIX }}
           MEDUSA_PENDING_URL: ${{ secrets.MEDUSA_PENDING_URL }}
           MEDUSA_CALLBACK_URL: ${{ secrets.MEDUSA_CALLBACK_URL }}
           IMAGE_CONVERSION_TOKEN: ${{ secrets.IMAGE_CONVERSION_TOKEN }}

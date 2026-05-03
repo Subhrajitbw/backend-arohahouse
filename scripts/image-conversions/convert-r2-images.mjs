@@ -15,6 +15,7 @@ const requiredEnv = [
   "R2_PUBLIC_BASE_URL",
   "R2_RAW_PREFIX",
   "R2_WEBP_PREFIX",
+  "R2_AVIF_PREFIX",
   "MEDUSA_PENDING_URL",
   "MEDUSA_CALLBACK_URL",
   "IMAGE_CONVERSION_TOKEN",
@@ -38,6 +39,7 @@ const {
   R2_PUBLIC_BASE_URL,
   R2_RAW_PREFIX,
   R2_WEBP_PREFIX,
+  R2_AVIF_PREFIX,
   MEDUSA_PENDING_URL,
   MEDUSA_CALLBACK_URL,
   IMAGE_CONVERSION_TOKEN,
@@ -56,8 +58,11 @@ const R2_DELETE_PREFIX = process.env.R2_DELETE_PREFIX || ""
 
 const rawPrefix = normalizePrefix(R2_RAW_PREFIX)
 const webpPrefix = normalizePrefix(R2_WEBP_PREFIX)
+const avifPrefix = normalizePrefix(R2_AVIF_PREFIX)
 const publicBaseUrl = normalizeBaseUrl(R2_PUBLIC_BASE_URL)
 
+// Auto-detect if endpoint already contains the bucket name to avoid path duplication
+const isBucketInEndpoint = R2_ENDPOINT.includes(`/${R2_BUCKET}`)
 const s3 = new S3Client({
   region: "auto",
   endpoint: R2_ENDPOINT,
@@ -65,7 +70,7 @@ const s3 = new S3Client({
     accessKeyId: R2_ACCESS_KEY_ID,
     secretAccessKey: R2_SECRET_ACCESS_KEY,
   },
-  forcePathStyle: true,
+  forcePathStyle: !isBucketInEndpoint,
 })
 
 const stripQueryAndHash = (value) => {
@@ -76,16 +81,24 @@ const stripQueryAndHash = (value) => {
 const normalizeUrl = (value) => stripQueryAndHash(value).trim()
 
 const isSupportedImage = (urlOrKey) => {
-  const lower = urlOrKey.toLowerCase()
-  return lower.endsWith(".png")
+  const lower = urlOrKey.toLowerCase().split("?")[0].split("#")[0]
+  return (
+    lower.endsWith(".png") ||
+    lower.endsWith(".jpg") ||
+    lower.endsWith(".jpeg") ||
+    lower.endsWith(".webp") ||
+    lower.endsWith(".avif") ||
+    lower.endsWith(".tiff")
+  )
 }
 
 const buildPublicUrl = (key) => `${publicBaseUrl}/${key.replace(/^\/+/, "")}`
 
 const keyFromUrl = (url) => {
   const normalized = normalizeUrl(url)
-  if (normalized.startsWith(publicBaseUrl)) {
-    return normalized.slice(publicBaseUrl.length + 1)
+  const baseUrlWithSlash = publicBaseUrl.endsWith("/") ? publicBaseUrl : `${publicBaseUrl}/`
+  if (normalized.startsWith(baseUrlWithSlash)) {
+    return normalized.slice(baseUrlWithSlash.length)
   }
   return normalized.replace(/^\/+/, "")
 }
@@ -96,6 +109,14 @@ const toWebpKey = (rawKey) => {
     : rawKey
   const base = withoutPrefix.replace(/\.[^/.]+$/, "")
   return `${webpPrefix}${base}.webp`
+}
+
+const toAvifKey = (rawKey) => {
+  const withoutPrefix = rawKey.startsWith(rawPrefix)
+    ? rawKey.slice(rawPrefix.length)
+    : rawKey
+  const base = withoutPrefix.replace(/\.[^/.]+$/, "")
+  return `${avifPrefix}${base}.avif`
 }
 
 const streamToBuffer = async (stream) => {
@@ -134,13 +155,21 @@ const convertToWebp = async (buffer) => {
   return pipeline.webp({ quality: WEBP_QUALITY }).toBuffer()
 }
 
-const uploadWebp = async (key, body) => {
+const convertToAvif = async (buffer) => {
+  let pipeline = sharp(buffer)
+  if (MAX_WIDTH) {
+    pipeline = pipeline.resize({ width: MAX_WIDTH, withoutEnlargement: true })
+  }
+  return pipeline.avif({ quality: Math.max(10, WEBP_QUALITY - 15) }).toBuffer()
+}
+
+const uploadImage = async (key, body, type) => {
   await s3.send(
     new PutObjectCommand({
       Bucket: R2_BUCKET,
       Key: key,
       Body: body,
-      ContentType: "image/webp",
+      ContentType: `image/${type}`,
     })
   )
 }
@@ -213,37 +242,76 @@ const callCallback = async (payload) => {
 
 const processImage = async ({ product, originalUrl, isThumbnail }) => {
   const normalizedUrl = normalizeUrl(originalUrl)
-  if (!normalizedUrl.startsWith(`${publicBaseUrl}/${rawPrefix}`)) {
-    return { skipped: true, reason: "not_raw_prefix" }
+  const baseUrlWithSlash = publicBaseUrl.endsWith("/") ? publicBaseUrl : `${publicBaseUrl}/`
+  
+  // SAFETY: Only process images that belong to our R2 bucket
+  if (!normalizedUrl.startsWith(baseUrlWithSlash)) {
+    return { skipped: true, reason: "external_url" }
+  }
+
+  const rawKey = keyFromUrl(normalizedUrl)
+  
+  // Skip if it's already in the converted folders
+  const isAlreadyConverted = 
+    rawKey.startsWith(webpPrefix) || 
+    rawKey.startsWith(avifPrefix) || 
+    rawKey.toLowerCase().endsWith(".webp") || 
+    rawKey.toLowerCase().endsWith(".avif")
+
+  if (isAlreadyConverted) {
+    return { skipped: true, reason: "already_converted" }
   }
 
   if (!isSupportedImage(normalizedUrl)) {
     return { skipped: true, reason: "unsupported_extension" }
   }
 
-  const rawKey = keyFromUrl(normalizedUrl)
-  const webpKey = toWebpKey(rawKey)
-  const webpUrl = buildPublicUrl(webpKey)
-
-  const exists = await headObject(webpKey)
-  if (!exists) {
-    const rawObject = await s3.send(
-      new GetObjectCommand({
-        Bucket: R2_BUCKET,
-        Key: rawKey,
-      })
-    )
-    const buffer = await streamToBuffer(rawObject.Body)
-    const webpBuffer = await convertToWebp(buffer)
-    await uploadWebp(webpKey, webpBuffer)
+  // Check if raw file actually exists in R2 before processing
+  const rawExists = await headObject(rawKey)
+  if (!rawExists) {
+    return { skipped: true, reason: "raw_file_not_found_in_r2" }
   }
 
-  await callCallback({
+  const webpKey = toWebpKey(rawKey)
+  const avifKey = toAvifKey(rawKey)
+  const webpUrl = buildPublicUrl(webpKey)
+  const avifUrl = buildPublicUrl(avifKey)
+
+  const rawObject = await s3.send(
+    new GetObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: rawKey,
+    })
+  )
+  const buffer = await streamToBuffer(rawObject.Body)
+
+  // Convert and Upload WebP
+  const webpExists = await headObject(webpKey)
+  if (!webpExists) {
+    const webpBuffer = await convertToWebp(buffer)
+    await uploadImage(webpKey, webpBuffer, "webp")
+  }
+
+  // Convert and Upload AVIF
+  const avifExists = await headObject(avifKey)
+  if (!avifExists) {
+    const avifBuffer = await convertToAvif(buffer)
+    await uploadImage(avifKey, avifBuffer, "avif")
+  }
+
+  const callbackResult = await callCallback({
     product_id: product.id,
     original_url: originalUrl,
     webp_url: webpUrl,
-    ...(isThumbnail ? { thumbnail_url: webpUrl } : {}),
+    avif_url: avifUrl,
+    ...(isThumbnail ? { thumbnail_url: avifUrl } : {}), // Use AVIF as thumbnail if available
   })
+
+  if (callbackResult.updated) {
+    console.log(`Successfully updated Medusa DB for product ${product.id}`)
+  } else {
+    console.warn(`Medusa DB update skipped (likely already updated) for product ${product.id}`)
+  }
 
   if (DELETE_RAW_AFTER_CONVERSION) {
     try {

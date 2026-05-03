@@ -93,20 +93,28 @@ export default async function imageConversionDispatchSubscriber({
   const rawPrefixUrl = `${baseUrl}/${rawPrefix}`
   const candidates = new Set<string>()
 
+  const isSupported = (url: string) => {
+    const lower = url.toLowerCase()
+    return (
+      lower.endsWith(".png") ||
+      lower.endsWith(".jpg") ||
+      lower.endsWith(".jpeg") ||
+      lower.endsWith(".webp") ||
+      lower.endsWith(".avif") ||
+      lower.endsWith(".tiff")
+    )
+  }
+
   for (const image of product.images ?? []) {
     const url = image?.url ? stripQueryAndHash(image.url) : undefined
-    if (
-      url &&
-      url.startsWith(rawPrefixUrl) &&
-      url.toLowerCase().endsWith(".png")
-    ) {
+    if (url && url.startsWith(rawPrefixUrl) && isSupported(url)) {
       candidates.add(image.url)
     }
   }
 
   if (product.thumbnail) {
     const thumb = stripQueryAndHash(product.thumbnail)
-    if (thumb.startsWith(rawPrefixUrl) && thumb.toLowerCase().endsWith(".png")) {
+    if (thumb.startsWith(rawPrefixUrl) && isSupported(thumb)) {
       candidates.add(product.thumbnail)
     }
   }

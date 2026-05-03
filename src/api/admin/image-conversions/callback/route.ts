@@ -6,6 +6,7 @@ export const ImageConversionCallbackSchema = z.object({
   product_id: z.string(),
   original_url: z.string().url(),
   webp_url: z.string().url(),
+  avif_url: z.string().url().optional(),
   thumbnail_url: z.string().url().optional(),
 })
 
@@ -21,19 +22,22 @@ export async function POST(
     return res.status(401).json({ error: "Unauthorized" })
   }
 
-  const { product_id, original_url, webp_url, thumbnail_url } = req.body
+  const { product_id, original_url, webp_url, avif_url, thumbnail_url } = req.body
+  const new_url = avif_url || webp_url
 
   const manager = req.scope.resolve("manager") as EntityManager
 
-  await manager.execute(
+  const [result] = await manager.execute(
     `
     UPDATE image
     SET url = $1
-    WHERE product_id = $2
-    AND url = $3
+    WHERE url = $2
+    RETURNING id
     `,
-    [webp_url, product_id, original_url]
+    [new_url, original_url]
   )
+
+  console.log(`Updated image for product ${product_id}: ${original_url} -> ${new_url}. Result:`, result)
 
   if (thumbnail_url) {
     await manager.execute(
@@ -46,5 +50,5 @@ export async function POST(
     )
   }
 
-  res.json({ success: true })
+  res.json({ success: true, updated: Boolean(result) })
 }

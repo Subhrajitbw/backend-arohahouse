@@ -83,6 +83,7 @@ export default defineConfig({
               region: process.env.S3_REGION,
               bucket: process.env.S3_BUCKET,
               endpoint: process.env.S3_ENDPOINT, // R2 endpoint
+              prefix: "raw/",
             },
           },
         ],
@@ -134,16 +135,16 @@ export default defineConfig({
      */
     ...(process.env.MEILISEARCH_HOST
       ? [
-          {
-            resolve: "./src/modules/meilisearch",
-            options: {
-              host: process.env.MEILISEARCH_HOST,
-              apiKey: process.env.MEILISEARCH_API_KEY,
-              productIndexName:
-                process.env.MEILISEARCH_PRODUCT_INDEX_NAME || "products",
-            },
+        {
+          resolve: "./src/modules/meilisearch",
+          options: {
+            host: process.env.MEILISEARCH_HOST,
+            apiKey: process.env.MEILISEARCH_API_KEY,
+            productIndexName:
+              process.env.MEILISEARCH_PRODUCT_INDEX_NAME || "products",
           },
-        ]
+        },
+      ]
       : []),
 
     /**
@@ -164,14 +165,29 @@ export default defineConfig({
               clientId: process.env.GOOGLE_CLIENT_ID,
               clientSecret: process.env.GOOGLE_CLIENT_SECRET,
 
-              // ✅ IMPORTANT: FIX FOR VERCEL ADMIN
+              // ✅ IMPORTANT: CALLBACK FOR THE PROVIDER (FACEBOOK/GOOGLE)
               callbackUrl:
                 process.env.GOOGLE_CALLBACK_URL ||
-                "https://admin.arohahouse.com/oauth/callback",
+                "https://api.arohahouse.com/auth/customer/google/callback",
 
               scope: ["email", "profile", "openid"],
             },
           },
+          // {
+          //   resolve: "@medusajs/medusa/auth-facebook",
+          //   id: "facebook",
+          //   options: {
+          //     clientId: process.env.FACEBOOK_CLIENT_ID,
+          //     clientSecret: process.env.FACEBOOK_CLIENT_SECRET,
+
+          //     // ✅ IMPORTANT: CALLBACK FOR THE PROVIDER
+          //     callbackUrl:
+          //       process.env.FACEBOOK_CALLBACK_URL ||
+          //       "https://api.arohahouse.com/auth/customer/facebook/callback",
+
+          //     scope: ["email", "public_profile"],
+          //   },
+          // },
         ],
       },
     },
