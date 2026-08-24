@@ -1,4 +1,5 @@
 // External packages
+import * as React from 'react';
 import { Text, Heading, Row, Column } from '@react-email/components';
 import { CustomerDTO } from '@medusajs/framework/types';
 
