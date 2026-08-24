@@ -4,7 +4,7 @@ services:
     env: node
     region: singapore # or frankfurt/oregon
     plan: free
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --legacy-peer-deps && npm run build
     startCommand: npx medusa start
     healthCheckPath: /health
     envVars:
@@ -21,12 +21,30 @@ services:
       - key: COOKIE_SECRET
         generateValue: true
       - key: STORE_CORS
-        sync: false # e.g. https://your-frontend.vercel.app
+        sync: false
       - key: ADMIN_CORS
-        sync: false # e.g. https://aroha-backend.onrender.com
+        sync: false
       - key: AUTH_CORS
-        sync: false # e.g. https://your-frontend.vercel.app
+        sync: false
       - key: SANITY_PROJECT_ID
         value: plyu49lt
       - key: SANITY_DATASET
         value: production
+      - key: SANITY_API_TOKEN
+        sync: false
+      - key: S3_ENDPOINT
+        value: https://95650cd5dbeeb29cac30da01cedcf3a5.r2.cloudflarestorage.com/aroha
+      - key: S3_BUCKET
+        value: aroha
+      - key: S3_REGION
+        value: auto
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: FILE_BASE_URL
+        value: https://media.arohahouse.com/aroha
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        value: info@arohahouse.com
