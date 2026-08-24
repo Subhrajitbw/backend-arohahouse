@@ -165,21 +165,22 @@ export default defineConfig({
             resolve: "@medusajs/medusa/auth-emailpass",
             id: "emailpass",
           },
-          {
-            resolve: "@medusajs/medusa/auth-google",
-            id: "google",
-            options: {
-              clientId: process.env.GOOGLE_CLIENT_ID,
-              clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-
-              // ✅ IMPORTANT: CALLBACK FOR THE PROVIDER (FACEBOOK/GOOGLE)
-              callbackUrl:
-                process.env.GOOGLE_CALLBACK_URL ||
-                "https://api.arohahouse.com/auth/customer/google/callback",
-
-              scope: ["email", "profile", "openid"],
-            },
-          },
+          ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+            ? [
+                {
+                  resolve: "@medusajs/medusa/auth-google",
+                  id: "google",
+                  options: {
+                    clientId: process.env.GOOGLE_CLIENT_ID,
+                    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+                    callbackUrl:
+                      process.env.GOOGLE_CALLBACK_URL ||
+                      "https://api.arohahouse.com/auth/customer/google/callback",
+                    scope: ["email", "profile", "openid"],
+                  },
+                },
+              ]
+            : []),
           // {
           //   resolve: "@medusajs/medusa/auth-facebook",
           //   id: "facebook",
