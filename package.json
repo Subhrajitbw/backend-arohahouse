@@ -13,6 +13,9 @@
     "medusa",
     "aroha"
   ],
+  "engines": {
+    "node": ">=20 <23"
+  },
   "scripts": {
     "build": "medusa build",
     "seed": "medusa exec ./src/scripts/seed.ts",
