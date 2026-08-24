@@ -33,7 +33,12 @@ export default defineConfig({
       },
     },
 
-    redisUrl: process.env.REDIS_URL || undefined,
+    redisUrl:
+      process.env.REDIS_URL &&
+      process.env.REDIS_URL.trim() !== "" &&
+      (process.env.REDIS_URL.startsWith("redis://") || process.env.REDIS_URL.startsWith("rediss://"))
+        ? process.env.REDIS_URL
+        : undefined,
 
     // -----------------------------
     // HTTP CONFIG
