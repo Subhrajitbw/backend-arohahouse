@@ -5,7 +5,7 @@ services:
     region: singapore # or frankfurt/oregon
     plan: free
     buildCommand: npm install --legacy-peer-deps && npm run build
-    startCommand: npx medusa start
+    startCommand: cd .medusa/server && npx medusa start
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION

@@ -20,7 +20,7 @@
     "build": "medusa build",
     "seed": "medusa exec ./src/scripts/seed.ts",
     "restore:categories": "node scripts/run-restore.js",
-    "start": "medusa start",
+    "start": "cd .medusa/server && medusa start",
     "dev": "medusa develop",
     "local": "yarn build && cp .env .medusa/server/.env.production && cd .medusa/server && yarn install && yarn start",
     "emails:dev": "email dev --dir=src/modules/resend/emails",
