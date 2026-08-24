@@ -33,7 +33,7 @@ export default defineConfig({
       },
     },
 
-    redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
+    redisUrl: process.env.REDIS_URL || undefined,
 
     // -----------------------------
     // HTTP CONFIG
