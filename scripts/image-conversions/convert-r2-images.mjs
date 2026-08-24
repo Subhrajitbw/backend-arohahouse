@@ -51,7 +51,7 @@ const {
 
 const MAX_TASKS = Number(process.env.MAX_TASKS || 25)
 const PENDING_LIMIT = Math.min(Number(process.env.PENDING_LIMIT || 50), 200)
-const MAX_PAGES = Number(process.env.MAX_PAGES || 5)
+const MAX_PAGES = Number(process.env.MAX_PAGES || 10)
 const UPDATED_AT_GTE = process.env.UPDATED_AT_GTE
 const WEBP_QUALITY = Number(process.env.WEBP_QUALITY || 80)
 const MAX_WIDTH = process.env.MAX_WIDTH ? Number(process.env.MAX_WIDTH) : undefined
@@ -60,10 +60,14 @@ const DELETE_RAW_AFTER_CONVERSION =
   "false"
 const R2_DELETE_PREFIX = process.env.R2_DELETE_PREFIX || ""
 
-const rawPrefix = normalizePrefix(R2_RAW_PREFIX)
-const webpPrefix = normalizePrefix(R2_WEBP_PREFIX)
-const avifPrefix = normalizePrefix(R2_AVIF_PREFIX)
-const publicBaseUrl = normalizeBaseUrl(R2_PUBLIC_BASE_URL)
+const START_TIME = Date.now();
+const MAX_RUNTIME_MS = (Number(process.env.MAX_RUNTIME_MINUTES) || 4) * 60 * 1000;
+const CONCURRENCY = Number(process.env.CONCURRENCY || 3); // Process 3 images at a time
+
+const rawPrefix = normalizePrefix(process.env.R2_RAW_PREFIX)
+const webpPrefix = normalizePrefix(process.env.R2_WEBP_PREFIX)
+const avifPrefix = normalizePrefix(process.env.R2_AVIF_PREFIX)
+const publicBaseUrl = normalizeBaseUrl(process.env.R2_PUBLIC_BASE_URL)
 
 // Auto-detect if endpoint already contains the bucket name to avoid path duplication
 const isBucketInEndpoint = R2_ENDPOINT.includes(`/${R2_BUCKET}`)
@@ -180,6 +184,7 @@ const uploadImage = async (key, body, type) => {
 
 const deleteRaw = async (key) => {
   const deleteKey = `${R2_DELETE_PREFIX}${key}`
+  console.log(`[DELETE] Attempting to remove raw file: ${deleteKey} from bucket ${R2_BUCKET}`)
   await s3.send(
     new DeleteObjectCommand({
       Bucket: R2_BUCKET,
@@ -320,17 +325,18 @@ const processImage = async ({ product, originalUrl, isThumbnail }) => {
   })
 
   if (callbackResult.updated) {
-    console.log(`Successfully updated Medusa DB for product ${product.id}`)
+    console.log(`[SUCCESS] Updated Medusa DB for product ${product.id}`)
   } else {
-    console.warn(`Medusa DB update skipped (likely already updated) for product ${product.id}`)
+    console.log(`[SKIP] Medusa DB update not needed for product ${product.id}`)
   }
 
+  // ONLY delete if conversion was successful AND callback didn't throw
   if (DELETE_RAW_AFTER_CONVERSION) {
     try {
       await deleteRaw(rawKey)
-      console.log(`Deleted raw image: ${rawKey}`)
+      console.log(`[CLEANUP] Deleted raw image: ${rawKey}`)
     } catch (error) {
-      console.error(`Failed to delete raw image ${rawKey}:`, error)
+      console.error(`[ERROR] Failed to delete raw image ${rawKey}:`, error.message)
     }
   }
 
@@ -339,26 +345,34 @@ const processImage = async ({ product, originalUrl, isThumbnail }) => {
 
 const processProductImages = async ({ productId, urls, thumbnail }) => {
   let processed = 0
+  const chunks = []
+  
+  // Split URLs into chunks for parallel processing
+  for (let i = 0; i < urls.length; i += CONCURRENCY) {
+    chunks.push(urls.slice(i, i + CONCURRENCY))
+  }
 
-  for (const url of urls) {
-    if (processed >= MAX_TASKS) {
-      console.log(`Reached MAX_TASKS=${MAX_TASKS}, stopping.`)
-      break
-    }
-    const isThumbnail = normalizeUrl(url) === normalizeUrl(thumbnail || "")
-    try {
-      const result = await processImage({
-        product: { id: productId, thumbnail },
-        originalUrl: url,
-        isThumbnail,
-      })
-      if (!result.skipped) {
-        processed += 1
-        console.log(`Processed product ${productId}: ${url} -> ${result.webpUrl}`)
+  for (const chunk of chunks) {
+    if (processed >= MAX_TASKS) break
+    if (Date.now() - START_TIME > MAX_RUNTIME_MS) break
+
+    await Promise.all(chunk.map(async (url) => {
+      if (processed >= MAX_TASKS) return
+      const isThumbnail = normalizeUrl(url) === normalizeUrl(thumbnail || "")
+      try {
+        const result = await processImage({
+          product: { id: productId, thumbnail },
+          originalUrl: url,
+          isThumbnail,
+        })
+        if (!result.skipped) {
+          processed += 1
+          console.log(`Processed product ${productId}: ${url} -> ${result.webpUrl}`)
+        }
+      } catch (error) {
+        console.error(`Failed to process ${url}:`, error)
       }
-    } catch (error) {
-      console.error(`Failed to process ${url}:`, error)
-    }
+    }))
   }
 
   return processed
@@ -403,6 +417,11 @@ const main = async () => {
     }
 
     for (const product of products) {
+      if (Date.now() - START_TIME > MAX_RUNTIME_MS) {
+        console.log("Reached MAX_RUNTIME, stopping cleanly.")
+        return
+      }
+      
       const candidates = new Set()
       const images = product.images || []
 

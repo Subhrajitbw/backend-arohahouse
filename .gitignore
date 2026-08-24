@@ -1,44 +1,62 @@
+# Build & Output
 /dist
-.env
-.DS_Store
+/build
+.medusa
+.next/
 /uploads
-/node_modules
+/static
+
+# Dependencies
+node_modules/
+.yarn/
+
+# Environment files
+.env
+.env.server
+.env.test
+.env.template
+.env.production.example
+env.txt
+
+# Logs
 yarn-error.log
+npm-debug.log*
+*.log
 
-.idea
+# Database dumps, Excel files, and text reports
+*.sql
+*.xlsx
+*.csv
+*.ndjson
+*.pdf
+*.txt
+*_report.txt
 
-coverage
+# Editor & OS files
+.DS_Store
+src/.DS_Store
+.idea/
+.vscode/
 
-!src/**
+# Temporary work & recovery folders
+scratch/
+recovery/
 
+# TypeScript build cache
 ./tsconfig.tsbuildinfo
 package-lock.json
-medusa-db.sql
-build
-.cache
 
-.yarn/*
+# Certificates
+localhost+1-key.pem
+localhost+1.pem
+Caddyfile
+medusa-config.server.js
+rename.js
+
+# Specific overrides
 !.yarn/patches
 !.yarn/plugins
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
-
-.medusa
-/static
-.env.server
-.env.test
-.env.template
-.medusa
-.vscode
-.yarn
-node_modules
-medusa-config.server.js
-rename.js
-localhost+1-key.pem
-.gitignore
-Caddyfile
-localhost+1.pem
-src/.DS_Store
-src/admin/lib/sdk.ts
-src/admin/lib/sdk.ts
+!src/**

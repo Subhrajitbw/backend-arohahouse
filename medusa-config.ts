@@ -10,19 +10,19 @@ const adminCors =
 
 const authCors =
   process.env.AUTH_CORS ||
-  "http://localhost:5173,http://localhost:7001,http://localhost:9000"
+  "http://localhost:5173,http://localhost:7001,http://localhost:9000,http://localhost:3000"
 
-const storeCors = process.env.STORE_CORS || "http://localhost:5173"
+const storeCors = process.env.STORE_CORS || "http://localhost:5173,http://localhost:7001,http://localhost:9000,http://localhost:3000"
 
 export default defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL!,
     databaseDriverOptions: {
       connection: {
-        // Essential: AWS RDS requires this object structure for SSL
-        ssl: {
-          rejectUnauthorized: false
-        },
+        // Essential: Enables SSL automatically for remote DBs like Neon.tech
+        ssl: process.env.DATABASE_SSL === "true" || process.env.DATABASE_URL?.includes("sslmode=require") || process.env.DATABASE_URL?.includes("neon.tech")
+          ? { rejectUnauthorized: false }
+          : false,
       },
       // Optimization: Prevents the "Pool is full" crash on t2.micro
       pool: {
@@ -51,7 +51,7 @@ export default defineConfig({
     // COOKIE CONFIG (CROSS DOMAIN)
     // -----------------------------
     cookieOptions: {
-      secure: process.env.NODE_ENV === "production",
+      secure: process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === "true" : process.env.NODE_ENV === "production",
       sameSite: "lax",
       httpOnly: true,
     },
@@ -104,6 +104,13 @@ export default defineConfig({
               channels: ["email"],
               api_key: process.env.RESEND_API_KEY,
               from: process.env.RESEND_FROM_EMAIL,
+            },
+          },
+          {
+            resolve: "@medusajs/medusa/notification-local",
+            id: "local",
+            options: {
+              channels: ["feed"],
             },
           },
         ],

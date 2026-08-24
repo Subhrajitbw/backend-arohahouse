@@ -1,0 +1,380 @@
+[
+  {
+    "name": "Furniture",
+    "handle": "furniture",
+    "seo_title": "Luxury Furniture Online in India",
+    "parentHandle": null
+  },
+  {
+    "name": "Chairs",
+    "handle": "chairs",
+    "seo_title": "Designer Chairs Online in India",
+    "parentHandle": "furniture"
+  },
+  {
+    "name": "Office Chair",
+    "handle": "office-chair",
+    "seo_title": "Luxury Office Chairs in India",
+    "parentHandle": "chairs"
+  },
+  {
+    "name": "Dining Chair",
+    "handle": "dining-chair",
+    "seo_title": "Luxury Dining Chairs in India",
+    "parentHandle": "chairs"
+  },
+  {
+    "name": "Recliner Chair",
+    "handle": "recliner-chair",
+    "seo_title": "Premium Recliner Chairs in India",
+    "parentHandle": "chairs"
+  },
+  {
+    "name": "Accent Chair",
+    "handle": "accent-chair",
+    "seo_title": "Designer Accent Chairs in India",
+    "parentHandle": "chairs"
+  },
+  {
+    "name": "Lounge Chair",
+    "handle": "lounge-chair",
+    "seo_title": "Luxury Lounge Chairs in India",
+    "parentHandle": "chairs"
+  },
+  {
+    "name": "Arm Chair",
+    "handle": "arm-chair",
+    "seo_title": "Premium Arm Chairs in India",
+    "parentHandle": "chairs"
+  },
+  {
+    "name": "Vintage Chair",
+    "handle": "vintage-chair",
+    "seo_title": "Vintage & Classic Chairs in India",
+    "parentHandle": "chairs"
+  },
+  {
+    "name": "Outdoor Chair",
+    "handle": "outdoor-chair",
+    "seo_title": "Outdoor & Patio Chairs in India",
+    "parentHandle": "chairs"
+  },
+  {
+    "name": "Café Chair",
+    "handle": "cafe-chair",
+    "seo_title": "Café & Restaurant Chairs in India",
+    "parentHandle": "chairs"
+  },
+  {
+    "name": "Sofa",
+    "handle": "sofa",
+    "seo_title": "Luxury Sofas Online in India",
+    "parentHandle": "furniture"
+  },
+  {
+    "name": "2 Seater Sofa",
+    "handle": "2-seater-sofa",
+    "seo_title": "2 Seater Sofas in India",
+    "parentHandle": "sofa"
+  },
+  {
+    "name": "3 Seater Sofa",
+    "handle": "3-seater-sofa",
+    "seo_title": "3 Seater Sofas in India",
+    "parentHandle": "sofa"
+  },
+  {
+    "name": "Sectional Sofa",
+    "handle": "sectional-sofa",
+    "seo_title": "Sectional & L-Shaped Sofas in India",
+    "parentHandle": "sofa"
+  },
+  {
+    "name": "Single Seater Sofa",
+    "handle": "single-seater-sofa",
+    "seo_title": "Single Seater Sofas in India",
+    "parentHandle": "sofa"
+  },
+  {
+    "name": "Recliner Sofa",
+    "handle": "recliner-sofa",
+    "seo_title": "Recliner Sofas in India",
+    "parentHandle": "sofa"
+  },
+  {
+    "name": "Sofa Cum Bed",
+    "handle": "sofa-cum-bed",
+    "seo_title": "Sofa Cum Beds in India",
+    "parentHandle": "sofa"
+  },
+  {
+    "name": "Tables",
+    "handle": "tables",
+    "seo_title": "Designer Tables in India",
+    "parentHandle": "furniture"
+  },
+  {
+    "name": "Coffee Table",
+    "handle": "coffee-table",
+    "seo_title": "Coffee Tables in India",
+    "parentHandle": "tables"
+  },
+  {
+    "name": "Centre Table",
+    "handle": "centre-table",
+    "seo_title": "Centre Tables in India",
+    "parentHandle": "tables"
+  },
+  {
+    "name": "Side Table",
+    "handle": "side-table",
+    "seo_title": "Side Tables in India",
+    "parentHandle": "tables"
+  },
+  {
+    "name": "DIY Coffee Table",
+    "handle": "diy-coffee-table",
+    "seo_title": "DIY & Custom Coffee Tables",
+    "parentHandle": "tables"
+  },
+  {
+    "name": "Storage",
+    "handle": "storage",
+    "seo_title": "Storage Furniture in India",
+    "parentHandle": "furniture"
+  },
+  {
+    "name": "Almirah / Wardrobe",
+    "handle": "almirah-wardrobe",
+    "seo_title": "Wooden Wardrobes & Almirahs",
+    "parentHandle": "storage"
+  },
+  {
+    "name": "Chest of Drawers",
+    "handle": "chest-of-drawers",
+    "seo_title": "Chest of Drawers in India",
+    "parentHandle": "storage"
+  },
+  {
+    "name": "TV Unit",
+    "handle": "tv-unit",
+    "seo_title": "TV Units & Media Cabinets",
+    "parentHandle": "storage"
+  },
+  {
+    "name": "Shoe Rack",
+    "handle": "shoe-rack",
+    "seo_title": "Shoe Racks & Organisers",
+    "parentHandle": "storage"
+  },
+  {
+    "name": "Bookshelf",
+    "handle": "bookshelf",
+    "seo_title": "Bookshelves & Bookcases",
+    "parentHandle": "storage"
+  },
+  {
+    "name": "Bedroom",
+    "handle": "bedroom",
+    "seo_title": "Luxury Bedroom Furniture in India",
+    "parentHandle": "furniture"
+  },
+  {
+    "name": "Bed",
+    "handle": "bed",
+    "seo_title": "Designer Beds in India",
+    "parentHandle": "bedroom"
+  },
+  {
+    "name": "Bed with Storage",
+    "handle": "bed-with-storage",
+    "seo_title": "Storage Beds in India",
+    "parentHandle": "bedroom"
+  },
+  {
+    "name": "Bedside Table",
+    "handle": "bedside-table",
+    "seo_title": "Bedside Tables in India",
+    "parentHandle": "bedroom"
+  },
+  {
+    "name": "Dressing Table",
+    "handle": "dressing-table",
+    "seo_title": "Dressing Tables in India",
+    "parentHandle": "bedroom"
+  },
+  {
+    "name": "Dining",
+    "handle": "dining",
+    "seo_title": "Luxury Dining Furniture in India",
+    "parentHandle": "furniture"
+  },
+  {
+    "name": "Dining Table",
+    "handle": "dining-table",
+    "seo_title": "Dining Tables in India",
+    "parentHandle": "dining"
+  },
+  {
+    "name": "Dining Set",
+    "handle": "dining-set",
+    "seo_title": "Dining Table Sets in India",
+    "parentHandle": "dining"
+  },
+  {
+    "name": "Bar Unit",
+    "handle": "bar-unit",
+    "seo_title": "Home Bar Units in India",
+    "parentHandle": "dining"
+  },
+  {
+    "name": "Aroha Maison Enfants",
+    "handle": "aroha-maison-enfants",
+    "seo_title": "Aroha Maison Enfants | Luxury Kids Furniture",
+    "parentHandle": null
+  },
+  {
+    "name": "Kids",
+    "handle": "kids",
+    "seo_title": "Kids Furniture Online in India",
+    "parentHandle": "aroha-maison-enfants"
+  },
+  {
+    "name": "Kids Bed",
+    "handle": "kids-bed",
+    "seo_title": "Kids Beds in India",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Baby Cot",
+    "handle": "baby-cot",
+    "seo_title": "Baby Cots in India",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Baby Crib",
+    "handle": "baby-crib",
+    "seo_title": "Baby Cribs in India",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Toddler Bed",
+    "handle": "toddler-bed",
+    "seo_title": "Toddler Beds in India",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Bunk Bed",
+    "handle": "bunk-bed",
+    "seo_title": "Kids Bunk Beds in India",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Study Table",
+    "handle": "study-table",
+    "seo_title": "Kids Study Tables in India",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Study Chair",
+    "handle": "study-chair",
+    "seo_title": "Kids Study Chairs in India",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Study Table Set",
+    "handle": "study-table-set",
+    "seo_title": "Kids Study Table & Chair Sets",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Kids Sofa",
+    "handle": "kids-sofa",
+    "seo_title": "Kids Sofas & Lounge Chairs",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Kids Arm Chair",
+    "handle": "kids-arm-chair",
+    "seo_title": "Kids Arm Chairs in India",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Rocking Chair",
+    "handle": "rocking-chair",
+    "seo_title": "Kids Rocking Chairs in India",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Kids Storage",
+    "handle": "kids-storage",
+    "seo_title": "Kids Storage Furniture",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Toy Storage",
+    "handle": "toy-storage",
+    "seo_title": "Toy Storage Cabinets in India",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Book Rack",
+    "handle": "book-rack",
+    "seo_title": "Kids Book Racks in India",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Wardrobe",
+    "handle": "kids-wardrobe",
+    "seo_title": "Kids Wardrobes in India",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Montessori Furniture",
+    "handle": "montessori-furniture",
+    "seo_title": "Montessori Furniture in India",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Montessori Bed",
+    "handle": "montessori-bed",
+    "seo_title": "Montessori Floor Beds in India",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Montessori Shelf",
+    "handle": "montessori-shelf",
+    "seo_title": "Montessori Toy Shelves",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Montessori Table Set",
+    "handle": "montessori-table-set",
+    "seo_title": "Montessori Table & Chair Sets",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Wooden Toys",
+    "handle": "wooden-toys",
+    "seo_title": "Wooden Toys for Kids in India",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Play Sofa",
+    "handle": "play-sofa",
+    "seo_title": "Kids Play Sofas",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Nursery Furniture",
+    "handle": "nursery-furniture",
+    "seo_title": "Nursery Furniture in India",
+    "parentHandle": "kids"
+  },
+  {
+    "name": "Changing Table",
+    "handle": "changing-table",
+    "seo_title": "Baby Changing Tables",
+    "parentHandle": "kids"
+  }
+]

@@ -2,12 +2,14 @@ declare namespace NodeJS {
   interface ProcessEnv {
     NODE_ENV: "development" | "production" | "test";
     DATABASE_URL: string;
+    DATABASE_SSL?: string;
     REDIS_URL?: string;
     ADMIN_CORS: string;
     AUTH_CORS: string;
     STORE_CORS: string;
     JWT_SECRET: string;
     COOKIE_SECRET: string;
+    COOKIE_SECURE?: string;
 
     // Storage & R2
     FILE_BASE_URL: string;
@@ -71,6 +73,7 @@ declare namespace NodeJS {
     PINTEREST_CLIENT_ID?: string;
     PINTEREST_CLIENT_SECRET?: string;
     PINTEREST_CALLBACK_URL?: string;
-    DISABLE_MEDUSA_ADMIN?: string
+    DISABLE_MEDUSA_ADMIN?: string;
+    DRY_RUN?: string;
   }
 }

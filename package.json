@@ -16,6 +16,7 @@
   "scripts": {
     "build": "medusa build",
     "seed": "medusa exec ./src/scripts/seed.ts",
+    "restore:categories": "node scripts/run-restore.js",
     "start": "medusa start",
     "dev": "medusa develop",
     "local": "yarn build && cp .env .medusa/server/.env.production && cd .medusa/server && yarn install && yarn start",
@@ -24,7 +25,6 @@
     "test:integration:modules": "TEST_TYPE=integration:modules NODE_OPTIONS=--experimental-vm-modules jest --silent --runInBand --forceExit",
     "test:unit": "TEST_TYPE=unit NODE_OPTIONS=--experimental-vm-modules jest --silent --runInBand --forceExit",
     "build:admin": "medusa-admin build --deployment"
-
   },
   "dependencies": {
     "@agilo/medusa-analytics-plugin": "^1.2.1",
@@ -54,6 +54,7 @@
     "react-dropzone": "^14.3.8",
     "resend": "^4.1.2",
     "tsconfig-paths": "^4.2.0",
+    "xlsx": "^0.18.5",
     "zod": "3.25.76"
   },
   "devDependencies": {

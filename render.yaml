@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: aroha-backend
+    env: node
+    region: singapore # or frankfurt/oregon
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npx medusa start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false # Set your Neon.tech connection string in Render Dashboard
+      - key: DATABASE_SSL
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: COOKIE_SECRET
+        generateValue: true
+      - key: STORE_CORS
+        sync: false # e.g. https://your-frontend.vercel.app
+      - key: ADMIN_CORS
+        sync: false # e.g. https://aroha-backend.onrender.com
+      - key: AUTH_CORS
+        sync: false # e.g. https://your-frontend.vercel.app
+      - key: SANITY_PROJECT_ID
+        value: plyu49lt
+      - key: SANITY_DATASET
+        value: production
