@@ -2,6 +2,7 @@
 /dist
 /build
 .medusa
+.wrangler/
 .next/
 /uploads
 /static
