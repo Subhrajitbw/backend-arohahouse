@@ -27,7 +27,8 @@
     "test:integration:http": "TEST_TYPE=integration:http NODE_OPTIONS=--experimental-vm-modules jest --silent=false --runInBand --forceExit",
     "test:integration:modules": "TEST_TYPE=integration:modules NODE_OPTIONS=--experimental-vm-modules jest --silent --runInBand --forceExit",
     "test:unit": "TEST_TYPE=unit NODE_OPTIONS=--experimental-vm-modules jest --silent --runInBand --forceExit",
-    "build:admin": "medusa-admin build --deployment"
+    "build:admin": "medusa-admin build --deployment",
+    "sync:secrets": "node scripts/sync-cloudflare-secrets.js"
   },
   "dependencies": {
     "@agilo/medusa-analytics-plugin": "^1.2.1",

@@ -6,6 +6,29 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
+  "vars": {
+    "NODE_ENV": "production",
+    "PORT": "9000",
+    "HOST": "0.0.0.0",
+    "MEDUSA_WORKER_MODE": "shared",
+    "DATABASE_SSL": "true",
+    "STORE_CORS": "https://arohahouse.com,https://www.arohahouse.com,http://localhost:3000",
+    "ADMIN_CORS": "https://api.arohahouse.com,http://localhost:7001",
+    "AUTH_CORS": "https://arohahouse.com,https://www.arohahouse.com,http://localhost:3000",
+    "COOKIE_SECURE": "true",
+    "DISABLE_MEDUSA_ADMIN": "false",
+    "MEDUSA_BACKEND_URL": "https://api.arohahouse.com",
+    "VITE_MEDUSA_BACKEND_URL": "https://api.arohahouse.com",
+    "FILE_BASE_URL": "https://media.arohahouse.com/aroha",
+    "S3_ENDPOINT": "https://95650cd5dbeeb29cac30da01cedcf3a5.r2.cloudflarestorage.com/aroha",
+    "S3_BUCKET": "aroha",
+    "S3_REGION": "auto",
+    "RESEND_FROM_EMAIL": "info@arohahouse.com",
+    "SANITY_PROJECT_ID": "plyu49lt",
+    "SANITY_DATASET": "production",
+    "GOOGLE_CLIENT_ID": "63414219428-7dvq2rev60kamloe37fi3c9dmoflfs0f.apps.googleusercontent.com",
+    "GOOGLE_CALLBACK_URL": "https://api.arohahouse.com/auth/customer/google/callback"
+  },
   "durable_objects": {
     "bindings": [
       {
