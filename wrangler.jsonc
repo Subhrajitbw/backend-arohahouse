@@ -1,0 +1,34 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "backend-arohahouse",
+  "main": "src/cloudflare-worker.ts",
+  "compatibility_date": "2025-02-24",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MEDUSA_CONTAINER",
+        "class_name": "MedusaContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": [
+        "MedusaContainer"
+      ]
+    }
+  ],
+  "containers": [
+    {
+      "name": "medusa",
+      "class_name": "MedusaContainer",
+      "image": "./Dockerfile",
+      "instance_type": "standard-1",
+      "max_instances": 1
+    }
+  ]
+}

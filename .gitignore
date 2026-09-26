@@ -31,6 +31,10 @@ npm-debug.log*
 *.pdf
 *.txt
 *_report.txt
+*.glb
+*.jpg
+*.jpeg
+*.png
 
 # Editor & OS files
 .DS_Store

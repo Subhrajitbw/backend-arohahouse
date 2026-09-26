@@ -62,9 +62,9 @@ export default defineConfig({
     },
 
     // -----------------------------
-    // WORKER MODE (LOW RAM SAFE)
+    // WORKER MODE
     // -----------------------------
-    workerMode: "server", // IMPORTANT for t2.micro
+    workerMode: (process.env.MEDUSA_WORKER_MODE as "shared" | "worker" | "server") || "shared",
   },
 
   // -----------------------------
