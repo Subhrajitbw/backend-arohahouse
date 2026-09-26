@@ -1,3 +1,13 @@
+---
+title: Aroha House Medusa Backend
+emoji: 🛍️
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 <p align="center">
   <a href="https://www.medusajs.com">
   <picture>
