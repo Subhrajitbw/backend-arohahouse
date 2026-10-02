@@ -4,7 +4,26 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 async function main() {
-  const hfToken = process.env.HF_TOKEN || process.argv[2];
+  // Read .env.server if present
+  const envPath = path.resolve(__dirname, '../.env.server');
+  const envVars = {};
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf8');
+    for (const line of envContent.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx === -1) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      let value = trimmed.slice(eqIdx + 1).trim();
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      envVars[key] = value;
+    }
+  }
+
+  const hfToken = process.env.HF_TOKEN || process.argv[2] || envVars['HF_TOKEN'];
   const spaceName = process.env.SPACE_NAME || process.argv[3] || 'arohahouse-backend';
 
   if (!hfToken) {
@@ -39,7 +58,7 @@ async function main() {
     body: JSON.stringify({
       type: 'space',
       name: spaceName,
-      space_sdk: 'docker',
+      sdk: 'docker',
       private: false
     })
   });
@@ -52,25 +71,11 @@ async function main() {
     console.log(`⚠️ Space creation note:`, await createRes.text());
   }
 
-  // Parse .env.server
-  const envPath = path.resolve(__dirname, '../.env.server');
-  if (fs.existsSync(envPath)) {
-    console.log('🔑 Syncing secrets from .env.server to Hugging Face Space...');
-    const envContent = fs.readFileSync(envPath, 'utf8');
-    const lines = envContent.split('\n');
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const eqIdx = trimmed.indexOf('=');
-      if (eqIdx === -1) continue;
-
-      const key = trimmed.slice(0, eqIdx).trim();
-      let value = trimmed.slice(eqIdx + 1).trim();
-      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-        value = value.slice(1, -1);
-      }
-
+  // Sync secrets to Hugging Face Space
+  if (Object.keys(envVars).length > 0) {
+    console.log('🔑 Syncing secrets to Hugging Face Space...');
+    for (const [key, value] of Object.entries(envVars)) {
+      if (key === 'HF_TOKEN') continue; // No need to sync HF token to itself
       try {
         const secRes = await fetch(`https://huggingface.co/api/spaces/${repoId}/secrets`, {
           method: 'POST',

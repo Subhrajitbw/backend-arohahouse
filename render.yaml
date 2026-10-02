@@ -2,10 +2,15 @@ services:
   - type: web
     name: aroha-backend
     env: node
-    region: singapore # or frankfurt/oregon
+    region: singapore
     plan: free
-    buildCommand: npm install --legacy-peer-deps --include=dev && npm run build
-    startCommand: cd .medusa/server && npx medusa start
+    buildCommand: |
+      corepack enable &&
+      yarn install --immutable &&
+      yarn build &&
+      cp -f .env .medusa/server/.env.production 2>/dev/null || true &&
+      cd .medusa/server && yarn install --production
+    startCommand: cd .medusa/server && medusa start
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
@@ -14,14 +19,22 @@ services:
         value: production
       - key: PORT
         value: 10000
+      - key: MEDUSA_WORKER_MODE
+        value: shared
       - key: DATABASE_URL
-        sync: false # Set your Neon.tech connection string in Render Dashboard
+        sync: false
       - key: DATABASE_SSL
         value: "true"
+      - key: REDIS_URL
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: COOKIE_SECRET
         generateValue: true
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: MEDUSA_BACKEND_URL
+        sync: false
       - key: STORE_CORS
         sync: false
       - key: ADMIN_CORS
@@ -33,6 +46,8 @@ services:
       - key: SANITY_DATASET
         value: production
       - key: SANITY_API_TOKEN
+        sync: false
+      - key: SANITY_STUDIO_URL
         sync: false
       - key: S3_ENDPOINT
         value: https://95650cd5dbeeb29cac30da01cedcf3a5.r2.cloudflarestorage.com/aroha
@@ -50,3 +65,9 @@ services:
         sync: false
       - key: RESEND_FROM_EMAIL
         value: info@arohahouse.com
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CALLBACK_URL
+        sync: false
