@@ -11,6 +11,8 @@ services:
       cp -f .env .medusa/server/.env.production 2>/dev/null || true &&
       cd .medusa/server && yarn install
     startCommand: cd .medusa/server && medusa start
+    customDomains:
+      - domain: api.arohahouse.com
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
