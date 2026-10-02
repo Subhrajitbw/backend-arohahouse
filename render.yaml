@@ -12,7 +12,7 @@ services:
       cd .medusa/server && yarn install
     startCommand: cd .medusa/server && medusa start
     customDomains:
-      - domain: api.arohahouse.com
+      - domain: admin.arohahouse.com
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
