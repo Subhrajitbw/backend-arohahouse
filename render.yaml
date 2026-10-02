@@ -9,7 +9,7 @@ services:
       yarn install --immutable &&
       yarn build &&
       cp -f .env .medusa/server/.env.production 2>/dev/null || true &&
-      cd .medusa/server && yarn install --production
+      cd .medusa/server && yarn install
     startCommand: cd .medusa/server && medusa start
     healthCheckPath: /health
     envVars:
